@@ -38,6 +38,12 @@ def _sum_meses(y: int, m: int, n: int) -> list[tuple[int, int]]:
     return out
 
 
+def saldos(con: sqlite3.Connection) -> list[dict]:
+    """Saldos diarios precalculados para el Dashboard (solo 'realizado')."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM saldos_diarios ORDER BY fecha").fetchall()]
+
+
 def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
     """Arma columnas + filas + detalle para la Vista de Flujo (RN-10/RN-11, sin paginar)."""
     saldo_ini = float(con.execute(

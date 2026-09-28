@@ -191,6 +191,9 @@ table.matrix{border-collapse:separate;border-spacing:0;min-width:100%;font-size:
 .mini-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex-shrink:0;
   border:1px solid var(--input-bd);border-radius:var(--radius-sm);background:#fff;color:var(--primary-ink);
   cursor:pointer}
+.api-pill{font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;
+  background:#fff7e6;color:#7a5600;border:1px solid #f0d48a}
+.api-pill[data-modo="real"]{background:#e9f7ef;color:#1c7a3d;border-color:#9ed3b2}
 .mini-btn:hover{background:var(--nav-active-bg)}
 .exp-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
   border:1px solid var(--input-bd);border-radius:var(--radius-sm);background:#fff;cursor:pointer;

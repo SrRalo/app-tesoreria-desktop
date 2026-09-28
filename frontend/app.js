@@ -87,6 +87,18 @@ function aplicarEscenario(cols, key) {
 
 async function renderDashboard() {
   const saldos = await Api.saldos();
+  if (!saldos.length) {
+    // BD vacía recién iniciada: sin datos que graficar (el modal RF-14 guía la carga).
+    $('#dashRange').textContent = 'Sin datos todavía · importa tu Excel o crea movimientos';
+    $('#dashAlert').innerHTML = '';
+    $('#kpis').innerHTML = '';
+    $('#chartFoot').textContent = 'Sin datos';
+    const cv = $('#chart');
+    if (cv) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+    $('#upcoming').innerHTML = '<div class="empty"><h2>Sin movimientos</h2>' +
+      '<p>Cuando importes tu libro o guardes movimientos, aquí verás el resumen.</p></div>';
+    return;
+  }
   const n = Math.min(state.horizonte, saldos.length);
   const base = saldos.slice(-n);
   // Ventana con etiquetas día + fecha para el gráfico y KPIs
@@ -579,6 +591,19 @@ let entTab = 'cliente';
 const ICO_BUILDING = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>';
 const ICO_BANK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>';
 
+/* Resumen por entidad (nombre, total, nº movs, último): el mock ya lo trae
+   calculado; con API real se agrega aquí desde los movimientos. */
+async function resumenEntidades(rows, tipo) {
+  if (rows.length && typeof rows[0].movimientos === 'number') return rows;
+  const { rows: movs } = await Api.movimientos({ page: 1, limit: 500 });
+  return rows.map((r) => {
+    const ms = movs.filter((m) => m.entidad === r.nombre && m.status === 'realizado');
+    const total = ms.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.valor_usd : -m.valor_usd), 0);
+    return { nombre: r.nombre, tipo, total_usd: total, movimientos: ms.length,
+      ultimo: ms.length ? ms.map((m) => m.fecha_pago).sort().pop() : '—' };
+  }).sort((a, b) => a.nombre < b.nombre ? -1 : 1);
+}
+
 async function renderEntidades() {
   document.querySelectorAll('.tab').forEach((t) => {
     const on = t.dataset.tab === entTab;
@@ -614,7 +639,7 @@ async function renderEntidades() {
       }).join('') + '</tbody></table></div>';
     return;
   }
-  const rows = await Api.entidades(entTab);
+  const rows = await resumenEntidades(await Api.entidades(entTab), entTab);
   const esCli = entTab === 'cliente';
   body.innerHTML = rows.length ? '<div style="overflow-x:auto"><table class="tbl"><thead><tr>' +
     '<th>' + (esCli ? 'Cliente' : 'Proveedor') + '</th><th>Movimientos</th>' +
@@ -741,8 +766,14 @@ function init() {
       route();
     } catch (err) { wError('No se pudo importar: ' + err.message); }
   });
-  $('#wTemplate').addEventListener('click', () =>
-    wError('La plantilla se descarga del backend (GET /api/plantilla) o se genera con: python -m etl.plantilla (desde backend/).'));
+  $('#wTemplate').addEventListener('click', async () => {
+    if (await Api.modo() === 'real') {
+      const a = document.createElement('a');
+      a.href = '/api/plantilla'; a.download = 'plantilla_flujo.xlsx'; a.click();
+      return;
+    }
+    wError('La plantilla se descarga del backend (GET /api/plantilla). Por ahora usa Iniciar vacío.');
+  });
   checkBienvenida();
   $('#menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
   $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));

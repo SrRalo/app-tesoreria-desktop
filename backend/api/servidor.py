@@ -13,6 +13,7 @@ Endpoints:
   GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
   GET  /api/flujo?modo=anual&anio=YYYY           -> 12 columnas mes
   (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
+  GET  /api/saldos               -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard)
   GET  /api/movimientos?tipo=&status=&q=&page=&limit= -> lista paginada
   POST /api/movimientos -> crear (status solo pendiente|realizado)
   PUT  /api/movimientos/<id> -> editar fecha_pago+observacion (pasa a aplazado)
@@ -42,7 +43,7 @@ from nucleo.rutas import db_default, front_file
 from servicios import movimientos as srv_mov
 from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada
 from servicios.entidades import listar_cuentas, listar_entidades
-from servicios.flujo import flujo_por_modo
+from servicios.flujo import flujo_por_modo, saldos
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -135,6 +136,13 @@ class Handler(BaseHTTPRequestHandler):
             con = conectar(self.db)
             try:
                 res = listar_cuentas(con)
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/saldos":
+            con = conectar(self.db)
+            try:
+                res = saldos(con)
             finally:
                 con.close()
             return self._json(res)

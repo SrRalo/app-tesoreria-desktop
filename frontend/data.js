@@ -1,14 +1,10 @@
-/* data.js — mock con la FORMA EXACTA de la futura API (backend/app.py).
-   Cuando el backend esté listo, este archivo se reemplaza por fetch() 1:1:
-     Api.flujo(modo, params)      -> GET /api/flujo?modo=...
-     Api.movimientos(params)      -> GET /api/movimientos?...
-     Api.entidades(tipo)          -> GET /api/entidades?tipo=
-     Api.cuentas()                -> GET /api/cuentas
-     Api.estado()                 -> GET /api/estado
-   Todo en USD. Solo status 'realizado' suma al flujo (igual que el backend). */
+/* data.js — mock local + API real (mismo origen) con selección automática.
+   Si el backend responde (/api/estado), se usa la BD real; si no (abrir el
+   archivo suelto o servidor estático sin API), se usa el mock de demo.
+   La app siempre habla con `Api`; `MockApi` es solo el fallback. */
 'use strict';
 
-const Api = (() => {
+const MockApi = (() => {
   // RNG determinista: el mock siempre muestra los mismos números.
   function mulberry32(a) {
     return function () {
@@ -250,5 +246,90 @@ const Api = (() => {
       optimista: { ing: 1.15, egr: 0.95, nombre: 'Optimista' },
       pesimista: { ing: 0.70, egr: 1.10, nombre: 'Pesimista' },
     },
+  };
+})();
+
+/* ===== API REAL (misma forma que MockApi, vía fetch al backend) ===== */
+async function jfetch(url, opts = {}) {
+  const r = await fetch(url, opts);
+  let data = null;
+  try { data = await r.json(); }
+  catch (e) { throw new Error('respuesta inválida del servidor (' + r.status + ')'); }
+  if (!r.ok) throw new Error((data && data.error) || ('error ' + r.status));
+  return data;
+}
+const _qs = (p = {}) => Object.entries(p)
+  .filter(([, v]) => v !== '' && v !== undefined && v !== null)
+  .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&');
+const RealApi = {
+  estado: () => jfetch('/api/estado'),
+  initVacio: (d = {}) => jfetch('/api/init-vacio', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
+  importar: async (f) => {
+    const fd = new FormData();
+    fd.append('archivo', f, f.name);
+    const r = await jfetch('/api/importar', { method: 'POST', body: fd });
+    if (!r.filas_ok && r.errores && r.errores.length)
+      throw new Error(r.errores.slice(0, 3).join(' · '));
+    return r;
+  },
+  flujo: (modo, p = {}) => jfetch('/api/flujo?' + _qs({ modo, desde: p.desde, mes: p.mes, anio: p.anio })),
+  saldos: () => jfetch('/api/saldos'),
+  movimientos: (p = {}) => jfetch('/api/movimientos?' + _qs(p)),
+  entidades: (tipo) => jfetch('/api/entidades?' + _qs({ tipo: tipo || '' })),
+  cuentas: () => jfetch('/api/cuentas'),
+  crear: (d) => jfetch('/api/movimientos', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
+  actualizar: (id, d) => jfetch('/api/movimientos/' + id, { method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
+  marcarRealizado: (id) => jfetch('/api/movimientos/' + id + '/realizado', { method: 'PUT' }),
+  eliminar: (id) => jfetch('/api/movimientos/' + id, { method: 'DELETE' }),
+};
+
+/* ===== Api unificado: real si hay backend, mock si no ===== */
+const Api = (() => {
+  let modo = 'mock', sonda = null;
+  function sondear() {
+    if (!sonda) sonda = (async () => {
+      try {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), 2500);
+        const r = await fetch('/api/estado', { signal: ctl.signal, cache: 'no-store' });
+        clearTimeout(t);
+        if (r.ok) modo = 'real';
+      } catch (e) { modo = 'mock'; }
+      const pill = document.getElementById('apiMode');
+      if (pill) {
+        pill.textContent = modo === 'real' ? 'EN VIVO · API' : 'DEMO local';
+        pill.dataset.modo = modo;
+      }
+      return modo;
+    })();
+    return sonda;
+  }
+  const usar = (fn) => async (...a) => {
+    await sondear();
+    return (modo === 'real' ? RealApi[fn] : MockApi[fn])(...a);
+  };
+  return {
+    modo: async () => { await sondear(); return modo; },
+    ESCENARIOS: MockApi.ESCENARIOS,
+    estado: usar('estado'),
+    initVacio: usar('initVacio'),
+    importar: async (f) => {
+      await sondear();
+      if (modo !== 'real')
+        throw new Error('sin backend: abre la app desde el ejecutable o el servidor con API');
+      return RealApi.importar(f);
+    },
+    flujo: usar('flujo'),
+    saldos: usar('saldos'),
+    movimientos: usar('movimientos'),
+    entidades: usar('entidades'),
+    cuentas: usar('cuentas'),
+    crear: usar('crear'),
+    actualizar: usar('actualizar'),
+    marcarRealizado: usar('marcarRealizado'),
+    eliminar: usar('eliminar'),
   };
 })();

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from etl.importar import recalcular_saldos
-from servicios.flujo import _parse_ym, _sum_meses, flujo_por_modo
+from servicios.flujo import _parse_ym, _sum_meses, flujo_por_modo, saldos
 
 
 @pytest.fixture
@@ -63,6 +63,17 @@ class TestSemana:
 
     def test_semana_sin_parametros_usa_hoy(self, con_flujo):
         assert len(flujo_por_modo(con_flujo, "semana", {})["columnas"]) == 7
+
+
+class TestSaldos:
+    def test_solo_realizado_y_ordenado(self, con_flujo):
+        rows = saldos(con_flujo)
+        assert [(r["fecha"], r["ing"], r["egr"]) for r in rows] == [
+            ("2026-01-05", 8500, 0), ("2026-01-06", 0, 5500)]
+        assert rows[0]["acumulado_usd"] == 13500
+
+    def test_db_vacia_sin_saldos(self, con):
+        assert saldos(con) == []
 
 
 class TestTrimestre:
