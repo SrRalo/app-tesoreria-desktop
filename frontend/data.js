@@ -240,6 +240,14 @@ const MockApi = (() => {
       saldos = computeSaldos();
       return { ok: true };
     },
+    // Borrado total RN-13 (igual que DELETE /api/datos): vuelve al primer arranque.
+    borrarDatos: async (clave) => {
+      if (clave !== 'admin123') throw new Error('clave de administrador inválida');
+      movs.length = 0;
+      SALDO_INI = SALDO_INICIAL_DEFAULT;
+      saldos = computeSaldos();
+      return { ok: true };
+    },
     // Escenarios RN-04 (se aplican en el front sobre el flujo base)
     ESCENARIOS: {
       base: { ing: 1, egr: 1, nombre: 'Base' },
@@ -284,6 +292,8 @@ const RealApi = {
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
   marcarRealizado: (id) => jfetch('/api/movimientos/' + id + '/realizado', { method: 'PUT' }),
   eliminar: (id) => jfetch('/api/movimientos/' + id, { method: 'DELETE' }),
+  borrarDatos: (clave) => jfetch('/api/datos', { method: 'DELETE',
+    headers: { 'X-Admin-Clave': clave || '' } }),
 };
 
 /* ===== Api unificado: real si hay backend, mock si no ===== */
@@ -331,5 +341,6 @@ const Api = (() => {
     actualizar: usar('actualizar'),
     marcarRealizado: usar('marcarRealizado'),
     eliminar: usar('eliminar'),
+    borrarDatos: usar('borrarDatos'),
   };
 })();

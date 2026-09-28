@@ -31,7 +31,8 @@ Endpoints: `GET /api/estado`, `POST /api/init-vacio`, `POST /api/importar`
 (multipart campo `archivo`), `GET /api/plantilla`,
 `GET /api/flujo?modo=semana|trimestre|anual` (semana: `&desde=YYYY-MM-DD`;
 trimestre: `&mes=YYYY-MM` → ese + 2 siguientes; anual: `&anio=YYYY`),
-`GET/POST /api/movimientos` (filtros `tipo,status,q,page,limit`), `GET /api/entidades`, `GET /api/cuentas`.
+`GET/POST /api/movimientos` (filtros `tipo,status,q,page,limit`), `GET /api/entidades`, `GET /api/cuentas`,
+`DELETE /api/datos` (borrado total con header `X-Admin-Clave`, RN-13).
 
 ## Primer arranque (app empaquetada)
 

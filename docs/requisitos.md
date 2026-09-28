@@ -73,6 +73,7 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 | RF-12 | Importar Excel (backend) | Backend Python lee el Excel fuente, valida y lo importa a la BD relacional con reporte de errores y sin duplicar | Alta | Reimportar el mismo archivo no duplica; filas inválidas se reportan y no rompen la carga | Propuesto |
 | RF-13 | API de consultas (backend) | El front consulta la BD vía API JSON paginada; nunca lee el `.xlsx` directo por request | Alta | Con el Excel cerrado/borrado la app sigue mostrando y filtrando datos | Propuesto |
 | RF-14 | Primer arranque + plantilla | Con DB vacía la app ofrece (a) seleccionar Excel o (b) iniciar vacío con saldo inicial USD; además ofrece descargar `plantilla_flujo.xlsx` con formato válido | Alta | App nueva muestra el selector; (b) entra vacío; plantilla importada sin errores | Propuesto |
+| RF-15 | Configuración + borrado total | Vista Configuración con zona de peligro: botón "Borrar todo" protegido por clave de administrador en la UI; vacía movimientos, saldos, entidades y cuentas y vuelve al primer arranque | Alta | Sin clave no borra (403); con clave vuelve a `necesita_import=true` | Propuesto |
 
 ### Iconos sidebar (Lucide 18–23px)
 
@@ -103,6 +104,7 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 - RN-10: Vista de Flujo por periodo: semana = 7 columnas día (nombre + fecha); trimestre = se elige 1 mes y automáticamente son ese + los 2 siguientes; anual = 12 columnas mes. En mes/año los valores se suman por grupo y el acumulado arrastra el cierre anterior. Sin paginación.
 - RN-11: Desglose de Total Ingresos / Total Egresos = subfilas dentro de la matriz (una por movimiento: entidad + banco + monto, sin mostrar el concepto). Cada subfila tiene botón ⋯ que abre el detalle completo del movimiento (9 campos) con salto a Movimientos.
 - RN-12: Ciclo de vida del movimiento: al crear status solo pendiente/realizado (nunca aplazado); al editar solo fecha_pago y observación son editables y el status pasa a aplazado automáticamente; la acción "Realizado" (solo si pendiente/aplazado) estampa la fecha actual y status realizado.
+- RN-13: Borrado total exige clave de administrador (`admin123`, o `FLOWTREASURY_ADMIN` en el servidor) enviada en el header `X-Admin-Clave` a `DELETE /api/datos`; sin clave válida responde 403 y no toca nada.
 
 ## 7. Requisitos no funcionales
 

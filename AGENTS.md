@@ -7,7 +7,7 @@ App de flujo de tesorería: front vanilla + backend Python con Excel como fuente
 - No agregar `package.json`, bundlers, ni dependencias externas salvo CDN con justificación.
 - Backend: Python para lógica de negocio (leer Excel como fuente de datos, validar, importar a BD relacional, exponer API JSON). Sin frameworks JS.
 - Contenido UI en español (es-MX). Moneda USD.
-- Layout: una sola pantalla con barra lateral (sidebar) y 4 vistas sin recargar: Dashboard Principal, Vista de Flujo, Movimientos, Entidades.
+- Layout: una sola pantalla con barra lateral (sidebar) y 5 vistas sin recargar: Dashboard Principal, Vista de Flujo, Movimientos, Entidades, Configuración (zona de peligro RN-13).
 
 ## Estructura
 - `frontend/` para el front: `index.html` (entrypoint único), `styles.css`, `app.js`, `data.js` (mocks solo para demo sin backend).
@@ -36,4 +36,4 @@ App de flujo de tesorería: front vanilla + backend Python con Excel como fuente
 ## Diseño
 - Skill `impeccable` instalada en `.opencode/skills/impeccable` (comando `/impeccable`). Usar `init` antes de diseñar pantallas nuevas.
 - En Windows PowerShell usar `impeccable.cmd` y `npx.cmd` (los `.ps1` están bloqueados por ExecutionPolicy).
-- Iconos sidebar (Lucide, 18–23px): Dashboard Principal `LayoutDashboard`, Vista de Flujo `ChartNoAxesCombined`, Movimientos `ArrowDownLeft/ArrowUpRight`, Entidades `Building2/Users` + bancos `Landmark`.
+- Iconos sidebar (Lucide, 18–23px): Dashboard Principal `LayoutDashboard`, Vista de Flujo `ChartNoAxesCombined`, Movimientos `ArrowDownLeft/ArrowUpRight`, Entidades `Building2/Users` + bancos `Landmark`, Configuración `Settings`.

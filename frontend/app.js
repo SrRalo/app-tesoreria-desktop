@@ -58,7 +58,7 @@ async function fetchWeek(desde) {
 }
 
 /* ===== ROUTER (una sola pantalla, sin recargar) ===== */
-const VIEWS = ['dashboard', 'flujo', 'movimientos', 'entidades'];
+const VIEWS = ['dashboard', 'flujo', 'movimientos', 'entidades', 'config'];
 function route() {
   const v = (location.hash.replace('#/', '') || 'dashboard').split('?')[0];
   const view = VIEWS.includes(v) ? v : 'dashboard';
@@ -71,6 +71,7 @@ function route() {
   if (view === 'flujo') renderFlujo().catch((e) => { console.error(e); toast('Error al cargar la matriz'); });
   if (view === 'movimientos') renderMovimientos().catch((e) => { console.error(e); toast('Error al cargar movimientos'); });
   if (view === 'entidades') renderEntidades().catch((e) => { console.error(e); toast('Error al cargar entidades'); });
+  if (view === 'config') renderConfig().catch((e) => { console.error(e); toast('Error al cargar configuración'); });
 }
 window.addEventListener('hashchange', route);
 
@@ -656,6 +657,14 @@ async function renderEntidades() {
       '<p>Aparecerán solos al guardar movimientos con entidad.</p></div>';
 }
 
+/* ===== CONFIGURACIÓN (zona de peligro RN-13) ===== */
+async function renderConfig() {
+  let n = '?';
+  try { n = (await Api.estado()).movimientos; } catch (e) { /* sin backend */ }
+  $('#cfgInfo').textContent = 'Hay ' + n + ' movimientos cargados en este momento.';
+  $('#cfgErr').hidden = true;
+}
+
 /* ===== BIENVENIDA / PRIMER ARRANQUE (RF-14) ===== */
 async function checkBienvenida() {
   let est = null;
@@ -773,6 +782,24 @@ function init() {
       return;
     }
     wError('La plantilla se descarga del backend (GET /api/plantilla). Por ahora usa Iniciar vacío.');
+  });
+  // Configuración: borrado total con clave de administrador (RN-13)
+  $('#btnBorrar').addEventListener('click', async () => {
+    const err = $('#cfgErr');
+    err.hidden = true;
+    const clave = $('#cfgClave').value;
+    if (!clave) { err.textContent = 'Escribe la clave de administrador.'; err.hidden = false; return; }
+    const ok = await askConfirm('¿Borrar TODOS los datos?',
+      'Se eliminan movimientos, saldos, entidades y cuentas. Volverás al primer arranque. No se puede deshacer.',
+      'Sí, borrar todo');
+    if (!ok) return;
+    try {
+      await Api.borrarDatos(clave);
+      $('#cfgClave').value = '';
+      toast('Datos borrados · de vuelta al inicio');
+      renderConfig();
+      checkBienvenida();
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
   });
   checkBienvenida();
   $('#menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));

@@ -19,6 +19,7 @@ Endpoints:
   PUT  /api/movimientos/<id> -> editar fecha_pago+observacion (pasa a aplazado)
   PUT  /api/movimientos/<id>/realizado -> marcar realizado con fecha de hoy
   DELETE /api/movimientos/<id> -> eliminar
+  DELETE /api/datos             -> borrado total con clave admin (header X-Admin-Clave, RN-13)
   GET  /api/entidades?tipo=    -> clientes/proveedores (lectura)
   GET  /api/cuentas            -> bancos/cuentas (lectura)
 
@@ -42,6 +43,7 @@ from nucleo.basedatos import conectar
 from nucleo.rutas import db_default, front_file
 from servicios import movimientos as srv_mov
 from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada
+from servicios.configuracion import borrar_todo
 from servicios.entidades import listar_cuentas, listar_entidades
 from servicios.flujo import flujo_por_modo, saldos
 
@@ -233,6 +235,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         u = urlparse(self.path)
+        # Borrado total (zona de peligro, RN-13): vuelve al primer arranque.
+        if u.path == "/api/datos":
+            con = conectar(self.db)
+            try:
+                res = borrar_todo(con, self.headers.get("X-Admin-Clave", ""))
+            except PermissionError as e:
+                return self._json({"error": str(e)}, 403)
+            finally:
+                con.close()
+            return self._json(res)
         if u.path.startswith("/api/movimientos/"):
             mid = u.path.rsplit("/", 1)[-1]
             con = conectar(self.db)

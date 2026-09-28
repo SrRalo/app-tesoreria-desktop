@@ -194,6 +194,12 @@ table.matrix{border-collapse:separate;border-spacing:0;min-width:100%;font-size:
 .api-pill{font-weight:700;font-size:11px;padding:2px 8px;border-radius:999px;
   background:#fff7e6;color:#7a5600;border:1px solid #f0d48a}
 .api-pill[data-modo="real"]{background:#e9f7ef;color:#1c7a3d;border-color:#9ed3b2}
+/* Configuración: zona de peligro */
+.panel.danger{border:1px solid #f0b4b4;background:#fff5f5}
+.panel.danger h2{color:#a93226}
+.btn.danger{background:#c0392b;color:#fff}
+.btn.danger:hover{background:#a93226}
+.cfg-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
 .mini-btn:hover{background:var(--nav-active-bg)}
 .exp-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
   border:1px solid var(--input-bd);border-radius:var(--radius-sm);background:#fff;cursor:pointer;
