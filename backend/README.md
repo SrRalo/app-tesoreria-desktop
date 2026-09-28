@@ -46,10 +46,13 @@ trimestre: `&mes=YYYY-MM` → ese + 2 siguientes; anual: `&anio=YYYY`),
 cd backend
 pip install -r requirements.txt
 pyinstaller --onefile --windowed --name FlowTreasury `
+  --icon "assets\icon.ico" `
   --add-data "..\frontend;frontend" `
   --add-data "..\database\schema.sql;database" `
   run.py
 ```
+
+Icono: `assets/icon.ico` (generado desde el SVG de la marca del sidebar).
 
 Entregar carpeta portable (el front y el schema viajan embebidos en el `.exe`):
 
