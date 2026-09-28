@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flujo de Tesorería 2026 — Demo</title>
+<!-- Single-file demo: sin dependencias. Todo inline (CSS+JS puros) para abrir con doble clic, con o sin internet.
+     Si se desea, puede agregarse CDN (Tailwind/Chart.js); el render actual es el fallback puro garantizado. -->
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#ffffff; --ink:#0f1e33; --mut:#5b6b82; --line:#e3e9f2;
+    --green:#0e8a4d; --green-bg:#e6f6ec; --red:#c92a2a; --red-bg:#fdeaea;
+    --blue:#1a56db; --blue-bg:#e8effd; --amber:#b7791f; --amber-bg:#fdf3dd;
+    --green-d:#0B6B3A; --blue-d:#0B3B9E; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:"Inter",-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px}
+  .num,.kpi-val,td.monto,th.dia{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  header.top{position:sticky;top:0;z-index:50;background:var(--card);border-bottom:1px solid var(--line)}
+  .wrap{max-width:1400px;margin:0 auto;padding:12px 16px}
+  .brand{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#1a56db,#0B3B9E);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--mut);font-size:12px}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .controls label{font-size:12px;color:var(--mut)}
+  select,input[type="date"],input[type="number"],input[type="text"]{border:1px solid var(--line);border-radius:9px;padding:7px 9px;font-size:13px;background:#fff;color:var(--ink)}
+  button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;font-weight:600}
+  button:hover{border-color:#b9c6da;background:#f8fafc}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  button.success{background:var(--green-d);border-color:var(--green-d);color:#fff}
+  button.warn{background:#fff}
+  button:focus-visible,select:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px}
+  @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.kpis .kpi:last-child{grid-column:span 2}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
+  .kpi .t{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .kpi .v{font-size:19px;font-weight:800;margin-top:3px}
+  .kpi .d{font-size:12px;color:var(--mut);margin-top:2px}
+  .pos{color:var(--green-d)} .neg{color:var(--red)}
+  .alert{display:none;margin-top:10px;border:1px solid #f3b7b7;background:var(--red-bg);color:#7a1f1f;border-radius:var(--radius);padding:10px 12px;font-weight:600}
+  .alert.show{display:block}
+  .alert.ok{display:block;border-color:#b7e3c5;background:var(--green-bg);color:#0c5a32}
+  .grid2{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+  .card h2{font-size:16px;margin:0 0 8px 0}
+  .hint{font-size:12px;color:var(--mut)}
+  canvas#chart{width:100%;height:250px;display:block}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px;flex-wrap:wrap}
+  .dot{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  /* ===== Matriz horizontal ===== */
+  .matriz-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .matriz-wrap{overflow:auto;max-height:62vh;border:1px solid var(--line);border-radius:12px;background:#fff}
+  table.matriz{border-collapse:separate;border-spacing:0;min-width:max-content;font-size:13px}
+  .matriz th,.matriz td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:6px 8px;white-space:nowrap;text-align:right}
+  .matriz thead th{position:sticky;top:0;z-index:5;background:#0f1e33;color:#fff;border-right-color:#334155;min-width:104px;cursor:pointer}
+  .matriz thead th .wd{display:block;font-size:11px;opacity:.85;font-weight:700}
+  .matriz thead th .dt{display:block;font-size:13px;font-weight:800}
+  .matriz thead th.fin{background:#312e81}
+  .matriz thead th.defday{background:#7a1f1f}
+  .matriz thead th.selday{background:var(--blue)}
+  .matriz thead th.corner{left:0;z-index:8;min-width:250px;text-align:left;cursor:default}
+  .matriz th.concept,.matriz th.corner{position:sticky;left:0;z-index:4;background:#fff;text-align:left;min-width:250px;max-width:250px;overflow:hidden;text-overflow:ellipsis}
+  .matriz tbody th.concept{font-weight:400}
+  .matriz tr.grp th.concept{background:#eef2f7;font-weight:800;cursor:pointer}
+  .matriz tr.sub th.concept{padding-left:22px;color:#334155;font-weight:400}
+  .matriz tr.total td,.matriz tr.total th{background:var(--blue-bg);font-weight:800}
+  .matriz tr.neto td,.matriz tr.neto th{background:#f1f5f9;font-weight:800}
+  .matriz tr.acum td,.matriz tr.acum th{background:#e6f6ec;font-weight:800}
+  .matriz tr.saldoini td,.matriz tr.saldoini th{background:#fffbeb;font-weight:700}
+  .matriz tr.liquido td,.matriz tr.liquido th{background:#f5f3ff;font-weight:800}
+  .matriz td.neg{background:var(--red-bg);color:var(--red);font-weight:700}
+  .matriz td.pos{color:var(--green)}
+  .matriz td.cero{color:#94a3b8}
+  .matriz tr.hidden{display:none}
+  /* ===== Selección tipo Excel (una fila a la vez, sin conceptos en la matriz) ===== */
+  .matriz tbody tr.selable th.concept{cursor:pointer}
+  .matriz tbody tr.selable:hover th.concept,.matriz tbody tr.selable:hover td{background:#f7faff}
+  .matriz tbody tr.selrow th.concept,.matriz tbody tr.selrow td{background:#eaf3ff!important;box-shadow:inset 3px 0 var(--blue)}
+  .matriz tbody tr.selrow th.concept{font-weight:800;color:var(--blue-d)}
+  .matriz tbody tr.selable:focus-visible{outline:3px solid var(--blue);outline-offset:-3px}
+  .concept-in{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .rowdots{display:none;border:1px solid #b9c6da;background:#fff;border-radius:7px;padding:1px 8px;font-size:15px;line-height:1.4;cursor:pointer;font-weight:800;letter-spacing:1px}
+  tr.selrow .rowdots{display:inline-block}
+  .rowdots:hover{background:var(--blue);border-color:var(--blue);color:#fff}
+  .rowmenu{position:fixed;z-index:120;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(15,30,51,.18);padding:6px;min-width:210px}
+  .rowmenu[hidden]{display:none}
+  .rowmenu .rm-title{font-size:12px;color:var(--mut);font-weight:700;padding:6px 8px;text-transform:uppercase;letter-spacing:.04em}
+  .rowmenu button.item{display:flex;width:100%;text-align:left;border:0;background:#fff;border-radius:7px;padding:9px 10px;font-size:13px;font-weight:600}
+  .rowmenu button.item:hover{background:var(--blue-bg)}
+  .movmodal{width:600px;max-width:96vw}
+  .movmodal .sub{color:var(--mut);font-size:12px;margin:4px 0 6px 0}
+  .movlist{max-height:52vh;overflow:auto;margin-top:10px;border:1px solid var(--line);border-radius:10px}
+  table.movtab{width:100%;border-collapse:collapse;font-size:13px}
+  table.movtab th{position:sticky;top:0;background:#0f1e33;color:#fff;text-align:left;padding:8px 10px;font-size:12px}
+  table.movtab td{border-top:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  table.movtab td.num{text-align:right;white-space:nowrap}
+  .movtotal{display:flex;justify-content:space-between;font-weight:800;padding:10px 2px 0 2px}
+  .pill{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;margin-left:6px;vertical-align:middle}
+  .pill.in{background:#dcfce7;color:#166534}.pill.out{background:#fee2e2;color:#991b1b}.pill.calc{background:#dbeafe;color:#1e40af}
+  /* ===== Drawer ===== */
+  .drawer{position:fixed;top:0;right:0;width:400px;max-width:94vw;height:100vh;background:#fff;border-left:1px solid var(--line);box-shadow:-12px 0 30px rgba(0,0,0,.12);transform:translateX(105%);visibility:hidden;transition:transform .22s ease,visibility .22s;z-index:90;display:flex;flex-direction:column}
+  .drawer.open{transform:none;visibility:visible}
+  @media (prefers-reduced-motion: reduce){.drawer{transition:none}}
+  .drawer header{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .drawer .body{padding:14px 16px;overflow:auto}
+  .mov{border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px}
+  .mov .row1{display:flex;justify-content:space-between;font-weight:700}
+  .mov .row2{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;align-items:center}
+  .mov button{padding:4px 8px;font-size:12px}
+  .mov .row2 button{min-height:44px;min-width:44px}
+  /* ===== Modal ===== */
+  .overlay{position:fixed;inset:0;background:rgba(15,30,51,.45);display:none;z-index:100;align-items:center;justify-content:center;padding:16px}
+  .overlay.show{display:flex}
+  .modal{background:#fff;border-radius:var(--radius);padding:18px;width:380px;max-width:94vw}
+  .modal h3{margin:0 0 10px 0}
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;font-weight:700}
+  .field input,.field select{width:100%}
+  .err{display:none;color:#7a1f1f;background:var(--red-bg);border:1px solid #f3b7b7;border-radius:9px;padding:7px 9px;font-size:13px;margin-bottom:10px}
+  .err.show{display:block}
+  .mrow{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  footer{color:var(--mut);font-size:12px;text-align:center;padding:18px}
+  .toolbar-note{font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">$</div>
+      <div>
+        <h1>Flujo de Tesorería 2026 · Camaronera demo</h1>
+        <div class="sub" id="rangoLabel">05/01/2026 – 05/04/2026 · 90 días · USD · Saldo inicial editable</div>
+      </div>
+    </div>
+    <div class="controls">
+      <label>Escenario
+        <select id="selEscenario">
+          <option value="base" selected>Base (100%)</option>
+          <option value="optimista">Optimista (cobros ×1.15, pagos ×0.95)</option>
+          <option value="pesimista">Pesimista (cobros ×0.70, inesperados +10%)</option>
+        </select>
+      </label>
+      <label>Horizonte
+        <select id="selHorizonte">
+          <option value="30">30 días</option>
+          <option value="60">60 días</option>
+          <option value="90" selected>90 días</option>
+        </select>
+      </label>
+      <label>Saldo inicial (USD)
+        <input type="number" id="inpSaldo" value="5000" step="100" min="0" style="width:130px">
+      </label>
+      <label>Fecha inicio
+        <input type="date" id="inpFecha" value="2026-01-05">
+      </label>
+      <button class="success" id="btnIngreso">+ Ingreso</button>
+      <button class="primary" id="btnEgreso">+ Egreso</button>
+      <button id="btnCSV" title="Exportar matriz visible a CSV">Export CSV</button>
+      <button id="btnReset" class="warn" title="Regenerar datos mock">Reset mock</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="t">Saldo inicial</div><div class="v num" id="kSaldo">—</div><div class="d" id="kSaldoD">d0</div></div>
+      <div class="kpi"><div class="t">Total ingresos</div><div class="v num pos" id="kIng">—</div><div class="d">ventas + bancos (rango visible)</div></div>
+      <div class="kpi"><div class="t">Total egresos</div><div class="v num neg" id="kEgr">—</div><div class="d">9 categorías (rango visible)</div></div>
+      <div class="kpi"><div class="t">Flujo neto</div><div class="v num" id="kNeto">—</div><div class="d">ingresos − egresos</div></div>
+      <div class="kpi"><div class="t">Flujo acumulado final</div><div class="v num" id="kAcum">—</div><div class="d" id="kAcumD">—</div></div>
+    </div>
+    <div class="alert" id="alertBox"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid2">
+    <section class="card">
+      <h2>Proyección · acumulado vs neto diario <span class="hint">(canvas puro, sin CDN — refleja la tabla)</span></h2>
+      <canvas id="chart" height="250" role="img" aria-label="Gráfico de flujo: línea de acumulado y barras de neto diario. Resumen disponible en la matriz y los KPIs."></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:#1a56db"></i>Línea: flujo acumulado</span>
+        <span><i class="dot" style="background:#16a34a"></i>Barra verde: neto diario +</span>
+        <span><i class="dot" style="background:#dc2626"></i>Barra roja: neto diario −</span>
+        <span><i class="dot" style="background:#fecaca"></i>Zona: déficit (acumulado &lt; 0)</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="matriz-bar">
+        <h2 style="margin:0">Matriz de flujo → scroll horizontal a la derecha</h2>
+        <span class="toolbar-note">Clic en una fila para seleccionarla (tipo Excel) · ⋯ en la fila para ver en Movimientos · clic en un día para detalle · ▸ colapsa · negativos en rojo</span>
+      </div>
+      <div class="matriz-wrap" id="matrizWrap">
+        <table class="matriz" id="matriz"></table>
+      </div>
+      <p class="hint">Reglas motor: TOTAL_ING = ventas + bancos · TOTAL_EGR = Σ 9 categorías · NETO = ing − egr · ACUM(d) = SALDO_INI(d) + NETO(d) · SALDO_INI(d+1) = ACUM(d).</p>
+    </section>
+  </div>
+</main>
+
+<aside class="drawer" id="drawer" aria-label="Detalle del día">
+  <header>
+    <div><strong id="dwTitle">Detalle del día</strong><div class="sub" id="dwSub"></div></div>
+    <button id="dwClose">✕</button>
+  </header>
+  <div class="body" id="dwBody"></div>
+</aside>
+
+<div class="rowmenu" id="rowmenu" hidden>
+  <div class="rm-title" id="rowmenuTitle">Fila</div>
+  <button class="item" id="rowmenuGo">Ver en Movimientos →</button>
+</div>
+
+<div class="overlay" id="movOverlay">
+  <div class="modal movmodal" role="dialog" aria-modal="true" aria-labelledby="movTitle">
+    <h3 id="movTitle">Movimientos</h3>
+    <div class="sub" id="movSub"></div>
+    <div class="movlist" id="movBody"></div>
+    <div class="movtotal"><span id="movCount"></span><span class="num" id="movTotal"></span></div>
+    <div class="mrow"><button id="movClose">Cerrar</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h3 id="mTitle">+ Ingreso</h3>
+    <div class="err" id="mError" role="alert" aria-live="polite"></div>
+    <div class="field"><label for="mFecha">Fecha</label><input type="date" id="mFecha"></div>
+    <div class="field" id="fCliente"><label for="mCliente">Cliente</label><select id="mCliente"></select></div>
+    <div class="field" id="fCategoria" style="display:none"><label for="mCategoria">Categoría de egreso</label><select id="mCategoria"></select></div>
+    <div class="field" id="fBene" style="display:none"><label for="mBene">Beneficiario / concepto</label><input type="text" id="mBene" placeholder="Ej. Proveedor insumos" maxlength="80"></div>
+    <div class="field" id="fBanco" style="display:none"><label for="mBanco">Cuenta (solo ingreso por bancos)</label>
+      <select id="mBanco"><option>Préstamo Bco Pichincha</option><option>Préstamo Bco Guayaquil</option><option>Préstamo Bco Internacional</option><option>Otro ingreso bancario</option></select></div>
+    <div class="field"><label for="mTipoIng">Tipo de ingreso (solo +Ingreso)</label>
+      <select id="mTipoIng"><option value="venta">Por ventas (cliente)</option><option value="banco">Por bancos</option></select></div>
+    <div class="field"><label for="mMonto">Monto USD</label><input type="number" id="mMonto" min="1" step="10" value="1000"></div>
+    <div class="mrow"><button id="mCancel">Cancelar</button><button class="success" id="mSave">Guardar (recalcula)</button></div>
+  </div>
+</div>
+
+<footer>Demo front-only · datos mock 2026 · USD · Doble clic para abrir · Sin backend</footer>
+
+<script>
+"use strict";
+/* =====================================================================
+   SECCIÓN 1 — DATA MOCK (partimos de cero, 2026, USD)
+   ===================================================================== */
+const CLIENTES = ["ACUICOLA ROMAR","AGROCAMARON","ARGUDO ZAMBRANO","CABRERA DAVILA","CAMARONERA CAMANMOR","PACIFICCAM","PRODUMAR","EXPORCAMBRIT"];
+const CATEGORIAS = [
+  {id:"NOMINA",  label:"CORRIENTES / NÓMINA"},
+  {id:"LARVAS",  label:"LARVAS"},
+  {id:"INSUMOS", label:"INSUMOS"},
+  {id:"FABRICA", label:"COSTOS DE FABRICACIÓN"},
+  {id:"GADM",    label:"GASTOS ADM"},
+  {id:"GVTA",    label:"GASTOS VTA"},
+  {id:"BANCOS",  label:"BANCOS (préstamos)"},
+  {id:"ACTIVOS", label:"ACTIVOS"},
+  {id:"INESPER", label:"INESPERADOS"}
+];
+const BENES = {NOMINA:["Nómina quincenal"],LARVAS:["Larvicultura Santa Rosa"],INSUMOS:["Balanceados Pronaca"],FABRICA:["Planta proceso"],GADM:["Oficina / servicios"],GVTA:["Fletes / comisiones"],BANCOS:["PICH 400K","PICH 700K","INTER 60K"],ACTIVOS:["Compra equipo"],INESPER:["Varios imprevistos"]};
+
+// RNG con semilla: reset mock regenera exactamente lo mismo
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd = mulberry32(20260105);
+const pick=(r,arr)=>arr[Math.floor(r()*arr.length)];
+const money=(r,min,max,step=100)=>Math.round((min+r()*(max-min))/step)*step;
+
+const state = {
+  dias: 90,
+  horizonte: 90,
+  saldoInicial0: 5000,
+  escenario: "base",
+  startISO: "2026-01-05",
+  cobros: [],       // {id, cliente, dia, monto}
+  ingBancos: [],    // {id, concepto, dia, monto}
+  pagos: [],        // {id, bene, cat, dia, monto}
+  ajustes: {},      // dia -> ajuste manual saldo líquido
+  collapsed: new Set(),
+  selDay: null,
+  selRow: null,   // fila seleccionada tipo Excel (id de fila agregada, sin conceptos)
+  seq: 1
+};
+
+function genMock(){
+  state.cobros=[]; state.ingBancos=[]; state.pagos=[]; state.ajustes={}; state.seq=1;
+  const r = mulberry32(20260105);
+  // Cobros 2-3 por semana, $2,500–$18,000. Semana del 12–18 ene (días idx 7..13) casi sin cobros => semana negativa mock.
+  for(let w=0; w<13; w++){
+    const negWeek = (w===1); // segunda semana: déficit a propósito
+    const n = negWeek ? 1 : 2 + Math.floor(r()*2); // 2-3 normal
+    for(let k=0;k<n;k++){
+      let dia = w*7 + Math.floor(r()*7);
+      if(dia>89) continue;
+      if(negWeek) dia = 8; // un solo cobro chico el 13/ene
+      const monto = negWeek ? 2500 : money(r,2500,18000);
+      state.cobros.push({id:"C"+(state.seq++), cliente: pick(r,CLIENTES), dia, monto});
+    }
+  }
+  // Cobros fijos de calibración: semana del shock (15/ene: nómina+préstamos) queda
+  // 5 días en negativo en base (días 10-14), se salva en optimista y se hunde en pesimista.
+  state.cobros.push({id:"C"+(state.seq++), cliente:"ARGUDO ZAMBRANO", dia:10, monto:5500}); // cobro parcial el día del shock
+  state.cobros.push({id:"C"+(state.seq++), cliente:"PACIFICCAM", dia:15, monto:16000});      // recuperación
+  state.cobros.push({id:"C"+(state.seq++), cliente:"PRODUMAR", dia:18, monto:13000});        // recuperación
+  // Ingresos por bancos: 3 desembolsos puntuales
+  [{dia:9,monto:6000,concepto:"Préstamo Bco Pichincha"},{dia:40,monto:5000,concepto:"Préstamo Bco Guayaquil"},{dia:70,monto:4500,concepto:"Préstamo Bco Internacional"}]
+    .forEach(o=>state.ingBancos.push({id:"B"+(state.seq++),...o}));
+  // Egresos fijos
+  const add=(bene,cat,dia,monto)=>state.pagos.push({id:"P"+(state.seq++),bene,cat,dia,monto});
+  const lastDay=(y,m)=>new Date(y,m+1,0).getDate();
+  // NÓMINA quincenal $11,000 (15 y fin de mes)
+  [[2026,0],[2026,1],[2026,2],[2026,3]].forEach(([y,m])=>{
+    add("Nómina quincenal","NOMINA", idxOf(y,m,15), 11000);
+    add("Nómina quincenal","NOMINA", idxOf(y,m,lastDay(y,m)), 11000);
+  });
+  // Semanales / recurrentes
+  for(let d=0; d<90; d++){
+    const dt = dateFor(d), wd = dt.getDay();
+    if(wd===1) add("Larvicultura Santa Rosa","LARVAS",d,4200);       // lunes
+    if(wd===3) add("Balanceados Pronaca","INSUMOS",d,3800);          // miércoles
+    if(wd===5) add("Planta proceso","FABRICA",d,2500);               // viernes
+    if(wd===2) add("Oficina / servicios","GADM",d,1200);             // martes
+    if(d%10===4) add("Fletes / comisiones","GVTA",d,900);
+    if(r()<0.05) add("Varios imprevistos","INESPER",d,money(r,300,2500,50)); // ~5% aleatorio
+  }
+  // Préstamos día 15 (mismo día que nómina en ene => déficit): 1850+2900+850
+  [[2026,0],[2026,1],[2026,2]].forEach(([y,m])=>{
+    const d=idxOf(y,m,15);
+    add("PICH 400K","BANCOS",d,1850); add("PICH 700K","BANCOS",d,2900); add("INTER 60K","BANCOS",d,850);
+  });
+  // ACTIVOS puntuales (el de ene cae en la semana negativa)
+  add("Compra equipo bombeo","ACTIVOS", idxOf(2026,0,19), 8000);
+  add("Camioneta reparto","ACTIVOS", idxOf(2026,2,10), 8500);
+}
+function startDate(){ const [y,m,d]=state.startISO.split("-").map(Number); return new Date(y,m-1,d); }
+function dateFor(i){ const s=startDate(); const t=new Date(s); t.setDate(s.getDate()+i); return t; }
+function idxOf(y,m,day){ const s=startDate(); const t=new Date(y,m-1,day); return Math.round((t-s)/86400000); }
+const isoOf = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const fmtUSD = new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"});
+const fmt = n => fmtUSD.format(n);
+// Escape para strings de usuario antes de inyectar en HTML (OWASP XSS)
+const esc = s => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Paleta única del gráfico (tokens, sin hardcodes dispersos)
+const CH = {line:"#1a56db", pos:"#16a34a", neg:"#dc2626", def:"#fecaca", grid:"#e3e9f2", txt:"#5b6b82"};
+const WD = ["D","L","M","M","J","V","S"];
+const ddmm = d => String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");
+
+/* =====================================================================
+   SECCIÓN 2 — MOTOR DE CÁLCULO (funciones puras)
+   Reglas: TOTAL_ING=ventas+bancos · TOTAL_EGR=Σ9cats · NETO=ing-egr
+           ACUM(d)=SALDO_INI(d)+NETO(d) · SALDO_INI(d+1)=ACUM(d)
+   ===================================================================== */
+function mults(){
+  if(state.escenario==="optimista") return {cob:1.15, pag:0.95, inesp:0.95};
+  if(state.escenario==="pesimista") return {cob:0.70, pag:1.00, inesp:1.10};
+  return {cob:1, pag:1, inesp:1};
+}
+function calcDay(d, m){
+  const inD = a => a.filter(x=>x.dia===d);
+  const ingV = inD(state.cobros).reduce((s,x)=>s+x.monto*m.cob,0);
+  const ingB = inD(state.ingBancos).reduce((s,x)=>s+x.monto*m.cob,0);
+  const totIng = ingV + ingB;
+  const cats = {};
+  CATEGORIAS.forEach(c=>{
+    const k = c.id==="INESPER" ? m.inesp : m.pag;
+    cats[c.id] = state.pagos.filter(p=>p.dia===d && p.cat===c.id).reduce((s,p)=>s+p.monto*k,0);
+  });
+  const totEgr = Object.values(cats).reduce((a,b)=>a+b,0);
+  return {ingV, ingB, totIng, cats, totEgr, neto: totIng - totEgr};
+}
+let RES = []; // [{saldoIni, ...calc, acum, liquido}]
+function calcRange(){
+  const m = mults();
+  RES = [];
+  let saldoIni = state.saldoInicial0;
+  for(let d=0; d<state.dias; d++){
+    const c = calcDay(d, m);
+    const acum = saldoIni + c.neto;                       // FLUJO_ACUMULADO(d)
+    const liquido = acum + (state.ajustes[d]||0);         // conciliación manual
+    // desglose por cliente (ventas del día)
+    const porCli = {};
+    CLIENTES.forEach(cl=>porCli[cl]=state.cobros.filter(x=>x.dia===d&&x.cliente===cl).reduce((s,x)=>s+x.monto*m.cob,0));
+    RES.push({...c, saldoIni, acum, liquido, porCli});
+    saldoIni = acum;                                      // arrastre d+1
+  }
+  return RES;
+}
+
+/* =====================================================================
+   SECCIÓN 3 — RENDER MATRIZ (sticky-left + sticky-top + scroll-x)
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const matriz = $("matriz");
+const cell = (v, extra="") => {
+  const cls = v<0 ? "neg" : (v>0 ? "pos" : "cero");
+  return `<td class="monto num ${cls} ${extra}">${fmt(v)}</td>`;
+};
+function visibleDays(){ return Math.min(state.horizonte, state.dias); }
+
+function render(){
+  calcRange();
+  const N = visibleDays();
+  hideRowMenu();
+  renderHeader(N); renderKPIs(N); renderAlert(N); renderChart(N);
+  if(state.selDay!=null && state.selDay<N) renderDrawer(state.selDay);
+}
+
+/* Etiquetas de filas agregadas (la matriz NO muestra conceptos individuales) */
+function rowLabel(id){
+  if(id==="ventas") return "Ingreso · Ventas";
+  if(id==="ingBancos") return "Ingreso · Bancos";
+  if(id==="totalIng") return "Total ingresos";
+  if(id==="totalEgr") return "Total egresos";
+  if(id==="neto") return "Flujo neto";
+  if(id==="saldoini") return "Saldo inicial";
+  if(id==="acum") return "Flujo acumulado";
+  if(id==="liquido") return "Saldo líquido";
+  if(id && id.startsWith("cat:")){
+    const c=CATEGORIAS.find(x=>x.id===id.slice(4));
+    return c ? ("Egreso · "+c.label) : id;
+  }
+  return id || "Fila";
+}
+
+function renderHeader(N){
+  let h = `<caption class="sr-only">Matriz de flujo de tesorería diario en USD: ingresos por ventas y bancos, egresos por categoría, neto, saldos y acumulado. Sin conceptos individuales.</caption><thead><tr><th class="corner" scope="col">CONCEPTO ▸ colapsable</th>`;
+  for(let d=0; d<N; d++){
+    const dt=dateFor(d), fin=(dt.getDay()===0||dt.getDay()===6);
+    const def = RES[d].acum<0 ? "defday" : "";
+    const sel = state.selDay===d ? "selday" : "";
+    h += `<th class="dia ${fin?"fin":""} ${def} ${sel}" scope="col" tabindex="0" data-dia="${d}" title="Clic o Enter para ver detalle" aria-label="Ver detalle del día ${ddmm(dt)}"><span class="wd">${WD[dt.getDay()]}${fin?" · fin":""}</span><span class="dt">${ddmm(dt)}</span></th>`;
+  }
+  matriz.innerHTML = h + `</tr></thead><tbody id="mb"></tbody>`;
+  matriz.querySelectorAll("th.dia").forEach(th=>{
+    th.onclick=()=>selectDay(+th.dataset.dia);
+    th.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();selectDay(+th.dataset.dia);}};
+  });
+  const tb = $("mb");
+  const rows = [];
+  const hid = g => state.collapsed.has(g) ? "hidden" : "";
+  const sel = id => state.selRow===id ? "selrow" : "";
+  // Botón ⋯ solo visible en la fila seleccionada (CSS: tr.selrow .rowdots)
+  const dots = id => state.selRow===id
+    ? `<button class="rowdots" data-rowmenu="${id}" aria-label="Opciones de la fila ${esc(rowLabel(id))}" title="Opciones de fila">⋯</button>` : ``;
+  const concept = (label,rowId) => `<span class="concept-in"><span>${label}</span>${dots(rowId)}</span>`;
+  // NOTA: vista de flujo agregada por categoría/grupo. Los conceptos individuales
+  // (cliente / beneficiario) NO se muestran aquí; viven en Movimientos.
+  // --- INGRESOS (agregado, sin desglose por cliente) ---
+  rows.push(`<tr class="grp" data-grp="ing"><td class="concept">${state.collapsed.has("ing")?"▸":"▾"} INGRESOS</td>${"<td></td>".repeat(N)}</tr>`);
+  rows.push(`<tr class="selable sub ${hid("ing")} ${sel("ventas")}" data-row="ventas"><td class="concept">${concept("INGRESO VENTAS <span class='pill in'>ventas</span>","ventas")}</td>` +
+    RES.slice(0,N).map(r=>cell(r.ingV)).join("") + `</tr>`);
+  rows.push(`<tr class="selable sub ${hid("ing")} ${sel("ingBancos")}" data-row="ingBancos"><td class="concept">${concept("+ INGRESO BANCOS","ingBancos")}</td>` +
+    RES.slice(0,N).map(r=>cell(r.ingB)).join("") + `</tr>`);
+  rows.push(`<tr class="selable total ${hid("ing")} ${sel("totalIng")}" data-row="totalIng"><td class="concept">${concept("TOTAL INGRESOS","totalIng")}</td>` +
+    RES.slice(0,N).map(r=>cell(r.totIng)).join("") + `</tr>`);
+  // --- EGRESOS 9 cats (agregado por categoría, sin beneficiario) ---
+  rows.push(`<tr class="grp" data-grp="egr"><td class="concept">${state.collapsed.has("egr")?"▸":"▾"} EGRESOS (9 categorías)</td>${"<td></td>".repeat(N)}</tr>`);
+  CATEGORIAS.forEach(c=>{
+    const id="cat:"+c.id;
+    rows.push(`<tr class="selable ${hid("egr")} ${sel(id)}" data-row="${id}"><td class="concept">${concept("− "+c.label,id)}</td>` +
+      RES.slice(0,N).map(r=>cell(r.cats[c.id])).join("") + `</tr>`);
+  });
+  rows.push(`<tr class="selable total ${hid("egr")} ${sel("totalEgr")}" data-row="totalEgr"><td class="concept">${concept("TOTAL EGRESOS","totalEgr")}</td>` +
+    RES.slice(0,N).map(r=>cell(-r.totEgr,"neg")).join("") + `</tr>`);
+  // --- RESULTADO ---
+  rows.push(`<tr class="grp" data-grp="res"><td class="concept">${state.collapsed.has("res")?"▸":"▾"} RESULTADO</td>${"<td></td>".repeat(N)}</tr>`);
+  rows.push(`<tr class="selable neto ${hid("res")} ${sel("neto")}" data-row="neto"><td class="concept">${concept("FLUJO NETO <span class='pill calc'>ing−egr</span>","neto")}</td>` +
+    RES.slice(0,N).map(r=>cell(r.neto)).join("") + `</tr>`);
+  rows.push(`<tr class="selable saldoini ${hid("res")} ${sel("saldoini")}" data-row="saldoini"><td class="concept">${concept("SALDO INICIAL <span class='pill calc'>= acum(d−1)</span>","saldoini")}</td>` +
+    RES.slice(0,N).map(r=>cell(r.saldoIni)).join("") + `</tr>`);
+  rows.push(`<tr class="selable acum ${hid("res")} ${sel("acum")}" data-row="acum"><td class="concept">${concept("FLUJO ACUMULADO","acum")}</td>` +
+    RES.slice(0,N).map(r=>`<td class="monto num ${r.acum<0?"neg":"pos"}">${fmt(r.acum)}</td>`).join("") + `</tr>`);
+  rows.push(`<tr class="selable liquido ${hid("res")} ${sel("liquido")}" data-row="liquido"><td class="concept">${concept("SALDO LÍQUIDO BANCOS <span class='pill calc'>ajustable</span>","liquido")}</td>` +
+    RES.slice(0,N).map(r=>`<td class="monto num ${r.liquido<0?"neg":"pos"}">${fmt(r.liquido)}</td>`).join("") + `</tr>`);
+  tb.innerHTML = rows.join("").replace(/<td class="concept">([\s\S]*?)<\/td>/g, '<th class="concept" scope="row">$1</th>');
+  tb.querySelectorAll("tr.grp").forEach(tr=>{
+    const g=tr.dataset.grp;
+    const toggle=()=>{
+      state.collapsed.has(g)?state.collapsed.delete(g):state.collapsed.add(g);
+      render();
+    };
+    tr.onclick=toggle;
+    tr.tabIndex=0;
+    tr.setAttribute("aria-expanded", String(!state.collapsed.has(g)));
+    tr.setAttribute("aria-label", "Colapsar o expandir grupo");
+    tr.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}};
+  });
+  // --- Selección tipo Excel: una fila sombreada a la vez ---
+  tb.querySelectorAll("tr.selable").forEach(tr=>{
+    const id=tr.dataset.row;
+    tr.tabIndex=0;
+    tr.setAttribute("aria-selected", String(state.selRow===id));
+    tr.setAttribute("aria-label", rowLabel(id)+". Enter para seleccionar.");
+    tr.onclick=e=>{
+      if(e.target.closest(".rowdots")) return; // el ⋯ abre su propio menú
+      selectRow(id);
+    };
+    tr.onkeydown=e=>{
+      if(e.key==="Enter"||e.key===" "){e.preventDefault();selectRow(id);}
+      else if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();stepRow(id,e.key==="ArrowDown"?1:-1);}
+      else if(e.key==="Escape"){clearRowSel();}
+    };
+  });
+  tb.querySelectorAll(".rowdots").forEach(b=>{
+    b.onclick=e=>{e.stopPropagation();toggleRowMenu(b);};
+  });
+  // Etiqueta de rango
+  $("rangoLabel").textContent = ddmm(dateFor(0))+"/2026 – "+ddmm(dateFor(N-1))+"/2026 · "+N+" días · USD · Escenario "+state.escenario;
+}
+
+function renderKPIs(N){
+  const s = RES.slice(0,N);
+  const tI=s.reduce((a,r)=>a+r.totIng,0), tE=s.reduce((a,r)=>a+r.totEgr,0), tN=tI-tE;
+  $("kSaldo").textContent = fmt(state.saldoInicial0);
+  $("kIng").textContent = fmt(tI);
+  $("kEgr").textContent = fmt(-tE);
+  const kn=$("kNeto"); kn.textContent=fmt(tN); kn.className="v num "+(tN<0?"neg":"pos");
+  const ka=$("kAcum"); const last=s[s.length-1].acum;
+  ka.textContent=fmt(last); ka.className="v num "+(last<0?"neg":"pos");
+  $("kAcumD").textContent = "al "+ddmm(dateFor(N-1))+" · mín "+fmt(Math.min(...s.map(r=>r.acum)));
+}
+
+function renderAlert(N){
+  const box=$("alertBox");
+  const negs=[]; for(let d=0;d<N;d++) if(RES[d].acum<0) negs.push(d);
+  if(negs.length){
+    const a=dateFor(negs[0]), b=dateFor(negs[negs.length-1]);
+    box.className="alert show";
+    box.textContent=`⚠ ALERTA DÉFICIT: flujo acumulado < $0 en ${negs.length} día(s) (${ddmm(a)} al ${ddmm(b)}). Mínimo ${fmt(Math.min(...negs.map(d=>RES[d].acum)))}. Mueve un pago en el detalle del día o cambia a escenario optimista.`;
+  } else {
+    box.className="alert ok";
+    box.textContent=`✓ Sin déficit en el horizonte visible (acumulado ≥ $0 los ${N} días, escenario ${state.escenario}).`;
+  }
+}
+
+/* =====================================================================
+   SECCIÓN 4 — GRÁFICO (canvas puro: línea acumulado + barras neto)
+   ===================================================================== */
+function renderChart(N){
+  const cv=$("chart"), ctx=cv.getContext("2d");
+  const W=cv.clientWidth||cv.parentElement.clientWidth-24, H=250, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const data=RES.slice(0,N);
+  const pad={l:70,r:10,t:10,b:24}, iw=W-pad.l-pad.r, ih=H-pad.t-pad.b;
+  const vals=[...data.map(r=>r.acum),...data.map(r=>r.neto),0];
+  let mn=Math.min(...vals), mx=Math.max(...vals); if(mx===mn){mx=mn+1}
+  const negN=data.filter(r=>r.acum<0).length;
+  cv.setAttribute("aria-label",`Gráfico de flujo, ${N} días, escenario ${state.escenario}: acumulado mínimo ${fmt(Math.round(mn))}, máximo ${fmt(Math.round(mx))}, ${negN} días en déficit.`);
+  const y=v=>pad.t+ih-(v-mn)/(mx-mn)*ih, x=d=>pad.l+iw*(N===1?.5:d/(N-1));
+  // zona déficit
+  if(mn<0){ctx.fillStyle=CH.def;ctx.globalAlpha=.45;ctx.fillRect(pad.l,Math.min(y(0),y(mn)),iw,Math.abs(y(0)-y(mn)));ctx.globalAlpha=1;}
+  // grid + eje
+  ctx.strokeStyle=CH.grid;ctx.fillStyle=CH.txt;ctx.font="10px sans-serif";ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){const v=mn+(mx-mn)*g/4,yy=y(v);ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(fmt(Math.round(v)),4,yy+3);}
+  // barras neto
+  const bw=Math.max(1,iw/N*0.55);
+  data.forEach((r,d)=>{ctx.fillStyle=r.neto<0?CH.neg:CH.pos;const y0=y(0),y1=y(r.neto);ctx.fillRect(x(d)-bw/2,Math.min(y0,y1),bw,Math.max(1,Math.abs(y1-y0)));});
+  // línea acumulado
+  ctx.strokeStyle=CH.line;ctx.lineWidth=2;ctx.beginPath();
+  data.forEach((r,d)=>{d?ctx.lineTo(x(d),y(r.acum)):ctx.moveTo(x(d),y(r.acum));});
+  ctx.stroke();
+  ctx.fillStyle=CH.line;
+  data.forEach((r,d)=>{if(d%10===0||d===N-1){ctx.beginPath();ctx.arc(x(d),y(r.acum),2.5,0,7);ctx.fill();}});
+  // etiquetas fechas extremos
+  ctx.fillStyle=CH.txt;ctx.fillText(ddmm(dateFor(0)),pad.l,H-8);
+  const t2=ddmm(dateFor(N-1));ctx.fillText(t2,W-pad.r-ctx.measureText(t2).width,H-8);
+}
+
+/* =====================================================================
+   SECCIÓN 5 — DRAWER detalle-día + simulador mover pago ±7 días
+   ===================================================================== */
+function openDrawer(){$("drawer").classList.add("open");}
+function closeDrawer(){$("drawer").classList.remove("open");state.selDay=null;matriz.querySelectorAll("th.dia.selday").forEach(th=>th.classList.remove("selday"));}
+// Selección ligera: solo actualiza clases + drawer (sin reconstruir la matriz)
+function selectDay(d){state.selDay=d;matriz.querySelectorAll("th.dia").forEach(th=>th.classList.toggle("selday",+th.dataset.dia===d));renderDrawer(d);openDrawer();}
+
+/* =====================================================================
+   SECCIÓN 5b — SELECCIÓN DE FILA tipo Excel + ⋯ → Movimientos
+   La matriz es agregada (sin conceptos). El detalle vive en Movimientos.
+   ===================================================================== */
+function selectRow(id){
+  hideRowMenu();
+  state.selRow = (state.selRow===id) ? null : id; // toggle como Excel
+  render();
+  // devolver el foco a la fila seleccionada (navegación por teclado)
+  if(state.selRow){
+    const tr=matriz.querySelector(`tr.selable[data-row="${CSS.escape(state.selRow)}"]`);
+    if(tr) tr.focus({preventScroll:true});
+  }
+}
+function clearRowSel(){ if(state.selRow){state.selRow=null;hideRowMenu();render();} }
+function stepRow(id,delta){
+  const list=[...matriz.querySelectorAll("tr.selable")].filter(tr=>!tr.classList.contains("hidden"));
+  const i=list.findIndex(tr=>tr.dataset.row===id);
+  const nx=list[i+delta];
+  if(nx) selectRow(nx.dataset.row);
+}
+function hideRowMenu(){const m=$("rowmenu");if(m)m.hidden=true;}
+function toggleRowMenu(btn){
+  const m=$("rowmenu"), id=btn.dataset.rowmenu;
+  if(!m.hidden && m.dataset.for===id){hideRowMenu();return;}
+  m.dataset.for=id;
+  $("rowmenuTitle").textContent=rowLabel(id);
+  const r=btn.getBoundingClientRect();
+  m.hidden=false;
+  const mw=230, mh=96;
+  m.style.left=Math.min(window.innerWidth-mw-8,Math.max(8,r.left))+"px";
+  m.style.top=Math.min(window.innerHeight-mh-8,r.bottom+6)+"px";
+  $("rowmenuGo").focus();
+}
+// Movimientos que componen una fila agregada (rango visible, con escenario aplicado)
+function rowMovements(rowId,N){
+  const m=mults(), out=[];
+  const push=(dia,tipo,detalle,cat,monto,kind,id)=>{ if(dia>=0&&dia<N) out.push({dia,fecha:ddmm(dateFor(dia)),tipo,detalle,cat,monto,kind,id}); };
+  if(rowId==="ventas") state.cobros.forEach(x=>push(x.dia,"Ingreso · venta",x.cliente,"Ventas",x.monto*m.cob,"cobro",x.id));
+  else if(rowId==="ingBancos") state.ingBancos.forEach(x=>push(x.dia,"Ingreso · banco",x.concepto,"Bancos",x.monto*m.cob,"banco",x.id));
+  else if(rowId==="totalIng"){
+    state.cobros.forEach(x=>push(x.dia,"Ingreso · venta",x.cliente,"Ventas",x.monto*m.cob,"cobro",x.id));
+    state.ingBancos.forEach(x=>push(x.dia,"Ingreso · banco",x.concepto,"Bancos",x.monto*m.cob,"banco",x.id));
+  }
+  else if(rowId && rowId.startsWith("cat:")){
+    const cat=rowId.slice(4);
+    state.pagos.filter(p=>p.cat===cat).forEach(p=>push(p.dia,"Egreso",p.bene,cat,-p.monto*(cat==="INESPER"?m.inesp:m.pag),"pago",p.id));
+  }
+  else if(rowId==="totalEgr") state.pagos.forEach(p=>push(p.dia,"Egreso",p.bene,p.cat,-p.monto*(p.cat==="INESPER"?m.inesp:m.pag),"pago",p.id));
+  else if(rowId==="neto"){
+    state.cobros.forEach(x=>push(x.dia,"Ingreso · venta",x.cliente,"Ventas",x.monto*m.cob,"cobro",x.id));
+    state.ingBancos.forEach(x=>push(x.dia,"Ingreso · banco",x.concepto,"Bancos",x.monto*m.cob,"banco",x.id));
+    state.pagos.forEach(p=>push(p.dia,"Egreso",p.bene,p.cat,-p.monto*(p.cat==="INESPER"?m.inesp:m.pag),"pago",p.id));
+  }
+  out.sort((a,b)=>a.dia-b.dia);
+  return out;
+}
+function openMovimientos(rowId){
+  hideRowMenu();
+  const N=visibleDays(), list=rowMovements(rowId,N);
+  $("movTitle").textContent="Movimientos · "+rowLabel(rowId);
+  $("movSub").textContent=ddmm(dateFor(0))+"/2026 – "+ddmm(dateFor(N-1))+"/2026 · escenario "+state.escenario;
+  if(!list.length){
+    const calc=["saldoini","acum","liquido"].includes(rowId);
+    $("movBody").innerHTML=`<p class="hint" style="padding:12px">${calc?"Fila calculada: no tiene movimientos directos. Sus componentes se consultan en las filas de ingresos/egresos.":"Sin movimientos en el rango visible para esta fila."}</p>`;
+    $("movCount").textContent="0 movimientos";
+    $("movTotal").textContent="";
+  } else {
+    $("movBody").innerHTML=`<table class="movtab"><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto / detalle</th><th style="text-align:right">Monto USD</th></tr></thead><tbody>`+
+      list.map(o=>`<tr><td class="num">${o.fecha}</td><td>${esc(o.tipo)}<br><small style="color:var(--mut)">${esc(o.cat)}</small></td><td><strong>${esc(o.detalle)}</strong></td><td class="num ${o.monto<0?"neg":"pos"}">${fmt(o.monto)}</td></tr>`).join("")+
+      `</tbody></table>`;
+    const tot=list.reduce((s,o)=>s+o.monto,0);
+    $("movCount").textContent=list.length+" movimiento(s)";
+    $("movTotal").textContent="Total "+fmt(tot);
+    $("movTotal").className="num "+(tot<0?"neg":"pos");
+  }
+  $("movOverlay").classList.add("show");
+  setTimeout(()=>$("movClose").focus(),0);
+}
+function closeMovimientos(){$("movOverlay").classList.remove("show");}
+function moveItem(kind,id,delta){
+  const arr = kind==="cobro"?state.cobros:kind==="banco"?state.ingBancos:state.pagos;
+  const it=arr.find(x=>x.id===id); if(!it) return;
+  it.dia=Math.min(state.dias-1,Math.max(0,it.dia+delta));
+  render();
+}
+function renderDrawer(d){
+  $("dwTitle").textContent="Día "+WD[dateFor(d).getDay()]+" "+ddmm(dateFor(d))+"/2026";
+  const r=RES[d];
+  $("dwSub").textContent=`Neto ${fmt(r.neto)} · Acumulado ${fmt(r.acum)} · Líquido ${fmt(r.liquido)}`;
+  const m=mults();
+  const li=(kind,id,titulo,montoBase,tag)=>`
+    <div class="mov"><div class="row1"><span>${titulo}</span><span class="num ${montoBase<0?"neg":"pos"}">${fmt(montoBase)}</span></div>
+    <div class="hint">${tag} · escenario aplica ×${kind==="pago"?"pag":"cob"}</div>
+    <div class="row2"><span class="hint">Simular mover pago:</span>
+      <button onclick="__mv('${kind}','${id}',-7)">−7d</button>
+      <button onclick="__mv('${kind}','${id}',-1)">−1d</button>
+      <button onclick="__mv('${kind}','${id}',1)">+1d</button>
+      <button onclick="__mv('${kind}','${id}',7)">+7d</button>
+    </div></div>`;
+  let h=`<div class="mov"><div class="row1"><span>Ingresos ventas</span><span class="num pos">${fmt(r.ingV)}</span></div>
+    <div class="row1"><span>Ingresos bancos</span><span class="num pos">${fmt(r.ingB)}</span></div>
+    <div class="row1"><span>Total egresos</span><span class="num neg">${fmt(-r.totEgr)}</span></div></div>`;
+  state.cobros.filter(x=>x.dia===d).forEach(x=>h+=li("cobro",x.id,"💰 "+esc(x.cliente),x.monto*m.cob,"cobro venta"));
+  state.ingBancos.filter(x=>x.dia===d).forEach(x=>h+=li("banco",x.id,"🏦 "+esc(x.concepto),x.monto*m.cob,"ingreso banco"));
+  state.pagos.filter(x=>x.dia===d).forEach(x=>h+=li("pago",x.id,"🧾 "+esc(x.bene)+" <small>("+x.cat+")</small>",-x.monto*(x.cat==="INESPER"?m.inesp:m.pag),"egreso"));
+  if(!state.cobros.some(x=>x.dia===d)&&!state.pagos.some(x=>x.dia===d)&&!state.ingBancos.some(x=>x.dia===d))
+    h+=`<p class="hint">Sin movimientos este día. Usa +Ingreso / +Egreso para simular.</p>`;
+  h+=`<div class="mov"><div class="row1"><span>Saldo líquido (conciliación)</span><span class="num">${fmt(r.liquido)}</span></div>
+    <div class="row2"><span class="hint">Ajuste manual día:</span>
+    <input type="number" id="dwAjuste" step="50" value="${state.ajustes[d]||0}" style="width:120px">
+    <button onclick="__aj(${d})">Aplicar</button></div></div>`;
+  $("dwBody").innerHTML=h;
+}
+window.__mv=(k,id,dl)=>moveItem(k,id,dl);
+window.__aj=d=>{state.ajustes[d]=+($("dwAjuste").value||0);render();};
+
+/* =====================================================================
+   SECCIÓN 6 — EVENTOS (modal, CSV, reset, fecha, escenario)
+   ===================================================================== */
+let modalMode="ingreso", lastFocus=null;
+function errMsg(t){const e=$("mError");if(!t){e.classList.remove("show");e.textContent="";}else{e.textContent=t;e.classList.add("show");}}
+function paintModalFields(){
+  const isIng = modalMode==="ingreso";
+  $("mTitle").textContent = isIng?"+ Ingreso":"+ Egreso";
+  $("fCliente").style.display = isIng&&$("mTipoIng").value==="venta"?"block":"none";
+  $("fBanco").style.display = isIng&&$("mTipoIng").value==="banco"?"block":"none";
+  $("fCategoria").style.display = isIng?"none":"block";
+  $("fBene").style.display = isIng?"none":"block";
+  document.querySelector('#mTipoIng').closest('.field').style.display = isIng?"block":"none";
+}
+function openModal(mode,opener){
+  modalMode=mode; lastFocus=opener||document.activeElement; errMsg("");
+  paintModalFields();
+  $("mFecha").value = isoOf(dateFor(state.selDay??0));
+  $("overlay").classList.add("show");
+  setTimeout(()=>$("mFecha").focus(),0);
+}
+function openModalKeep(){paintModalFields();}
+function closeModal(){$("overlay").classList.remove("show");if(lastFocus&&lastFocus.focus)lastFocus.focus();}
+function saveModal(){
+  const monto=+($("mMonto").value||0);
+  if(!(monto>0)){errMsg("El monto debe ser mayor a 0 USD.");$("mMonto").focus();return;}
+  const f=new Date($("mFecha").value+"T12:00:00");
+  let dia=Math.round((f-startDate())/86400000);
+  if(isNaN(dia)){errMsg("Fecha inválida. Elige una fecha del calendario.");$("mFecha").focus();return;}
+  dia=Math.min(state.dias-1,Math.max(0,dia));
+  if(modalMode==="ingreso"){
+    if($("mTipoIng").value==="venta") state.cobros.push({id:"CU"+(state.seq++),cliente:$("mCliente").value,dia,monto});
+    else state.ingBancos.push({id:"BU"+(state.seq++),concepto:$("mBanco").value,dia,monto});
+  } else {
+    state.pagos.push({id:"PU"+(state.seq++),bene:$("mBene").value||"Egreso manual",cat:$("mCategoria").value,dia,monto});
+  }
+  $("overlay").classList.remove("show");
+  if(lastFocus&&lastFocus.focus)lastFocus.focus();
+  render();
+}
+function exportCSV(){
+  const N=visibleDays();
+  const head=["CONCEPTO",...Array.from({length:N},(_,d)=>isoOf(dateFor(d)))];
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const line=(c,vals)=>[q(c),...vals.map(v=>v.toFixed(2))].join(",");
+  const L=[head.map(q).join(",")];
+  L.push(line("INGRESO VENTAS",RES.slice(0,N).map(r=>r.ingV)));
+  L.push(line("INGRESO BANCOS",RES.slice(0,N).map(r=>r.ingB)));
+  L.push(line("TOTAL INGRESOS",RES.slice(0,N).map(r=>r.totIng)));
+  CATEGORIAS.forEach(c=>L.push(line(c.label,RES.slice(0,N).map(r=>r.cats[c.id]))));
+  L.push(line("TOTAL EGRESOS",RES.slice(0,N).map(r=>r.totEgr)));
+  L.push(line("FLUJO NETO",RES.slice(0,N).map(r=>r.neto)));
+  L.push(line("SALDO INICIAL",RES.slice(0,N).map(r=>r.saldoIni)));
+  L.push(line("FLUJO ACUMULADO",RES.slice(0,N).map(r=>r.acum)));
+  L.push(line("SALDO LIQUIDO",RES.slice(0,N).map(r=>r.liquido)));
+  const blob=new Blob([L.join("\n")],{type:"text/csv"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="flujo-2026.csv";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+function init(){
+  $("mCliente").innerHTML=CLIENTES.map(c=>`<option>${c}</option>`).join("");
+  $("mCategoria").innerHTML=CATEGORIAS.map(c=>`<option value="${c.id}">${c.label}</option>`).join("");
+  genMock(); calcRange(); render();
+  $("selEscenario").onchange=e=>{state.escenario=e.target.value;render();};
+  $("selHorizonte").onchange=e=>{state.horizonte=+e.target.value;render();};
+  $("inpSaldo").onchange=e=>{state.saldoInicial0=+e.target.value||0;render();};
+  $("inpFecha").onchange=e=>{if(e.target.value){state.startISO=e.target.value;genMockKeepUser();render();}};
+  $("btnIngreso").onclick=e=>openModal("ingreso",e.currentTarget);
+  $("btnEgreso").onclick=e=>openModal("egreso",e.currentTarget);
+  $("mCancel").onclick=()=>closeModal();
+  $("mSave").onclick=saveModal;
+  $("mTipoIng").onchange=openModalKeep;
+  $("btnCSV").onclick=exportCSV;
+  $("btnReset").onclick=()=>{genMock();state.ajustes={};state.selDay=null;state.selRow=null;render();};
+  $("dwClose").onclick=closeDrawer;
+  $("movClose").onclick=closeMovimientos;
+  $("rowmenuGo").onclick=()=>openMovimientos($("rowmenu").dataset.for);
+  $("movOverlay").addEventListener("click",e=>{if(e.target.id==="movOverlay")closeMovimientos();});
+  document.addEventListener("click",e=>{
+    const m=$("rowmenu");
+    if(m&&!m.hidden&&!e.target.closest("#rowmenu")&&!e.target.closest(".rowdots"))hideRowMenu();
+  });
+  document.addEventListener("keydown",e=>{
+    const m=$("rowmenu");
+    if(e.key==="Escape"&&m&&!m.hidden){hideRowMenu();return;}
+  });
+  $("overlay").addEventListener("click",e=>{if(e.target.id==="overlay")closeModal();});
+  // Focus trap dentro del diálogo
+  $("overlay").addEventListener("keydown",e=>{
+    if(e.key!=="Tab")return;
+    const f=[...$("overlay").querySelectorAll("input,select,button")].filter(el=>el.offsetParent!==null);
+    if(!f.length)return;
+    const first=f[0], last=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+  });
+  let rzT=null;
+  window.addEventListener("resize",()=>{clearTimeout(rzT);rzT=setTimeout(()=>renderChart(visibleDays()),150);});
+  document.addEventListener("keydown",e=>{if(e.key==="Escape"){if($("movOverlay").classList.contains("show"))closeMovimientos();else if($("overlay").classList.contains("show"))closeModal();else closeDrawer();}});
+}
+// Al cambiar fecha de inicio se regenera el mock sobre el nuevo rango (los agregados manuales se conservan)
+function genMockKeepUser(){
+  const uC=state.cobros.filter(x=>x.id.startsWith("CU")), uB=state.ingBancos.filter(x=>x.id.startsWith("BU")), uP=state.pagos.filter(x=>x.id.startsWith("PU"));
+  const keepSeq=state.seq;
+  genMock();
+  uC.forEach(x=>state.cobros.push({...x, dia:Math.min(state.dias-1,Math.max(0,x.dia))}));
+  uB.forEach(x=>state.ingBancos.push({...x, dia:Math.min(state.dias-1,Math.max(0,x.dia))}));
+  uP.forEach(x=>state.pagos.push({...x, dia:Math.min(state.dias-1,Math.max(0,x.dia))}));
+  state.seq=Math.max(state.seq,keepSeq);
+}
+init();
+</script>
+</body>
+</html>

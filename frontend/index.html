@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#123b64">
+<title>Flujo de Tesorería · Control financiero</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%23123b64'/%3E%3Cpath d='M15 42V28h8v14zm13 0V20h8v22zm13 0V12h8v30z' fill='%23fff'/%3E%3Cpath d='M14 50h36' stroke='%2365c4ff' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="scrim" id="scrim" aria-hidden="true"></div>
+<div class="shell">
+
+  <!-- ===== barra lateral ===== -->
+  <aside class="sidebar" aria-label="Navegación principal">
+    <div class="brand">
+      <svg width="38" height="40" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="13" fill="#123b64"/><path d="M15 42V28h8v14zm13 0V20h8v22zm13 0V12h8v30z" fill="#fff"/><path d="M14 50h36" stroke="#65c4ff" stroke-width="4"/></svg>
+      <div><div class="brand-name">Tesorería</div><div class="brand-cap">CONTROL FINANCIERO</div></div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="nav-cap">TESORERÍA</div>
+      <a class="nav-item active" href="#/dashboard" data-view="dashboard">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        <span>Dashboard Principal</span></a>
+      <a class="nav-item" href="#/flujo" data-view="flujo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V11"/><path d="M10 20V4"/><path d="M16 20v-6"/><path d="M2 20h20"/><path d="m4 11 4-4 3 3 5-5"/></svg>
+        <span>Vista de Flujo</span></a>
+      <a class="nav-item" href="#/movimientos" data-view="movimientos">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 7 7 17"/><path d="M16 17H7V8"/></svg>
+        <span>Movimientos</span></a>
+      <a class="nav-item" href="#/entidades" data-view="entidades">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+        <span>Entidades</span></a>
+    </nav>
+    <div class="side-foot">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>
+      <span>USD · Dólar · v0.1 mock</span>
+    </div>
+  </aside>
+
+  <!-- ===== contenido ===== -->
+  <div class="main">
+    <div class="topbar">
+      <button class="btn ghost collapse-btn" id="menuBtn" aria-label="Abrir navegación">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+      </button>
+      <span class="crumbs">Finanzas › Tesorería</span>
+      <div class="top-actions">
+        <button class="btn ghost" id="sideMinBtn" aria-label="Colapsar barra lateral">⟨⟩</button>
+        <span class="usd-badge">USD · Dólar</span>
+        <span class="avatar" aria-label="Usuario: Tesorero">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </span>
+      </div>
+    </div>
+
+    <main class="content">
+      <!-- ===== Dashboard Principal ===== -->
+      <section class="view active" id="view-dashboard" aria-label="Dashboard Principal">
+        <div class="page-head">
+          <div>
+            <h1>Resumen de caja</h1>
+            <p class="desc" id="dashRange">¿Cuándo tendré dinero y cuánto tendré en esa fecha?</p>
+          </div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Filtros del dashboard">
+            <label class="f">Escenario
+              <select class="input" id="fEscenario">
+                <option value="base" selected>Base</option>
+                <option value="optimista">Optimista</option>
+                <option value="pesimista">Pesimista</option>
+              </select></label>
+            <label class="f">Horizonte
+              <select class="input" id="fHorizonte">
+                <option value="14">14 días</option>
+                <option value="30" selected>30 días</option>
+                <option value="90">90 días</option>
+              </select></label>
+            <button class="btn primary" id="btnMovimiento">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              Movimiento</button>
+          </div>
+        </div>
+
+        <div id="dashAlert"></div>
+
+        <div class="kpis" id="kpis" aria-live="polite"></div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><h2>Flujo acumulado y neto diario</h2><div class="spacer"></div>
+              <div class="legend"><span><i></i>Acumulado</span><span><i class="bar"></i>Neto diario</span></div>
+            </div>
+            <div class="panel-body"><div class="chart-wrap"><canvas id="chart" aria-label="Gráfico de flujo acumulado"></canvas>
+              <div class="chart-tip" id="chartTip"></div></div></div>
+            <div class="panel-foot"><span id="chartFoot"></span></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2>Vencidos y próximos</h2></div>
+            <div class="panel-body" style="padding:6px 10px" id="upcoming"></div>
+            <div class="panel-foot"><a href="#/movimientos">Ver todos los movimientos →</a></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== placeholders incremento 2–4 ===== -->
+      <section class="view" id="view-flujo" aria-label="Vista de Flujo">
+        <div class="page-head">
+          <div><h1>Vista de Flujo</h1>
+            <p class="desc" id="flujoRange">Saldo inicial, ingresos, egresos, neto y acumulado.</p></div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Periodo de la matriz">
+            <label class="f">Periodo
+              <select class="input" id="fModo">
+                <option value="semana" selected>Semana</option>
+                <option value="trimestre">Trimestre</option>
+                <option value="anual">Anual</option>
+              </select></label>
+            <label class="f" id="wDesde">Desde
+              <input class="input" type="date" id="fDesde" value="2026-01-19"></label>
+            <label class="f" id="wMes" hidden>Mes base
+              <input class="input" type="month" id="fMes" value="2026-01"></label>
+            <label class="f" id="wAnio" hidden>Año
+              <select class="input" id="fAnio"><option selected>2026</option></select></label>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="matrix-wrap" id="matrixWrap" tabindex="0" aria-label="Matriz de flujo con scroll horizontal">
+            <table class="tbl matrix" id="matrix"></table>
+          </div>
+          <div class="panel-foot"><span id="matrixSel" aria-live="polite"></span><span style="width:12px"></span><span id="matrixFoot"></span></div>
+        </div>
+      </section>
+      <section class="view" id="view-movimientos" aria-label="Movimientos">
+        <div class="page-head">
+          <div><h1>Movimientos</h1>
+            <p class="desc" id="movCount">Ingresos y egresos con los 9 campos del formulario.</p></div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Acciones de movimientos">
+            <button class="btn primary" id="btnNewMov">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+              Movimiento</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="toolbar" role="group" aria-label="Filtros de movimientos">
+            <label class="f">Tipo
+              <select class="input" id="mTipo"><option value="">Todos</option><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>
+            <label class="f">Status
+              <select class="input" id="mStatus"><option value="">Todos</option><option value="pendiente">Pendiente</option><option value="aplazado">Aplazado</option><option value="realizado">Realizado</option></select></label>
+            <label class="f">Buscar
+              <input class="input" type="search" id="mQ" placeholder="Entidad u observación…" autocomplete="off"></label>
+          </div></div>
+          <div style="overflow-x:auto"><table class="tbl" id="movTable" aria-label="Tabla de movimientos"></table></div>
+          <div class="panel-foot"><span id="movPage"></span><span style="width:12px"></span>
+            <button class="btn ghost" id="movPrev">← Anterior</button>
+            <button class="btn ghost" id="movNext">Siguiente →</button></div>
+        </div>
+      </section>
+      <section class="view" id="view-entidades" aria-label="Entidades">
+        <div class="page-head">
+          <div><h1>Entidades</h1>
+            <p class="desc">Clientes, proveedores y bancos en modo lectura. Nacen de tus movimientos.</p></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="tabs" role="tablist" aria-label="Tipos de entidad">
+              <button class="tab active" role="tab" aria-selected="true" data-tab="cliente">Clientes</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="proveedor">Proveedores</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="banco">Bancos</button>
+            </div>
+          </div>
+          <div class="panel-body" style="padding-top:14px" id="entBody"></div>
+          <div class="panel-foot"><span>Solo lectura: las entidades se crean solas al guardar movimientos.</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<!-- ===== modal movimiento (crear / editar) ===== -->
+<div class="overlay" id="movOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="movTitle">
+    <h2 id="movTitle">Nuevo movimiento</h2>
+    <p class="desc" id="movSub">Elige si es ingreso o egreso y completa los campos. Al guardar se recalculan los saldos.</p>
+    <form id="movForm" novalidate>
+      <div class="form-grid">
+        <label class="f">Tipo
+          <select class="input" id="f_tipo"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>
+        <label class="f">Banco
+          <select class="input" id="f_banco"></select></label>
+        <label class="f">Fecha de pago
+          <input class="input" type="date" id="f_fecha" required></label>
+        <label class="f">Tipo de pago
+          <select class="input" id="f_tipopago"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="cheque">Cheque</option></select></label>
+        <label class="f">Entidad (cliente / proveedor)
+          <input class="input" type="text" id="f_entidad" list="dlEntidades" placeholder="Nombre…" autocomplete="off"></label>
+        <label class="f">Concepto de pago
+          <select class="input" id="f_concepto"><option value="nomina">Nomina</option><option value="prestamo">Prestamo</option></select></label>
+        <label class="f">Centro de costo
+          <input class="input" type="text" id="f_cc" placeholder="Opcional…" autocomplete="off"></label>
+        <label class="f">Valor (USD)
+          <input class="input" type="number" id="f_valor" min="0.01" step="0.01" required></label>
+        <label class="f">Status
+          <select class="input" id="f_status"><option value="pendiente">Pendiente</option><option value="realizado">Realizado</option><option value="aplazado">Aplazado</option></select></label>
+        <label class="f" style="grid-column:1/-1">Observación
+          <input class="input" type="text" id="f_obs" placeholder="Detalle…" autocomplete="off"></label>
+      </div>
+      <div class="review-card" id="movReview" hidden></div>
+      <p class="review-lock" id="movLock" hidden>Revisa los datos: al guardar se recalculan neto y acumulado desde la fecha de pago.</p>
+      <p class="review-lock" id="movAutoNote" hidden>Al editar solo se puede mover la fecha y la observación: el status pasará a <b>aplazado</b> automáticamente.</p>
+      <p class="form-err" id="movErr" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="movCancel">Cancelar</button>
+        <button type="submit" class="btn primary" id="movSave">Revisar</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="dlEntidades"></datalist>
+
+<!-- ===== confirmación de seguridad (reemplaza al confirm del navegador) ===== -->
+<div class="overlay blur" id="confirmOverlay" hidden>
+  <div class="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMsg">
+    <div class="confirm-ico" aria-hidden="true">
+      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+    </div>
+    <h2 id="confirmTitle">¿Eliminar este movimiento?</h2>
+    <p id="confirmMsg">Se recalcularán los saldos desde su fecha de pago.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="confirmNo">Cancelar</button>
+      <button type="button" class="btn danger" id="confirmYes">Sí, eliminar</button>
+    </div>
+  </div>
+</div>
+<!-- ===== bienvenida / primer arranque (RF-14) ===== -->
+<div class="overlay blur" id="welcomeOverlay" hidden>
+  <div class="modal welcome" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+    <div class="welcome-brand" aria-hidden="true">
+      <svg width="46" height="48" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#123b64"/><path d="M15 42V28h8v14zm13 0V20h8v22zm13 0V12h8v30z" fill="#fff"/><path d="M14 50h36" stroke="#65c4ff" stroke-width="4"/></svg>
+    </div>
+    <h2 id="welcomeTitle">Bienvenido a Tesorería</h2>
+    <p class="desc">Tu base de datos está vacía. Elige cómo empezar (montos en USD):</p>
+    <div class="welcome-grid">
+      <div class="welcome-opt">
+        <h3>Importar Excel</h3>
+        <p>Usa la plantilla oficial para evitar errores de lectura.</p>
+        <label class="f">Archivo .xlsx
+          <input class="input" type="file" id="wFile" accept=".xlsx"></label>
+        <button class="btn primary" id="wImport" style="width:100%;justify-content:center">Importar y entrar</button>
+        <button class="btn ghost" id="wTemplate" style="width:100%;justify-content:center">Descargar plantilla</button>
+      </div>
+      <div class="welcome-opt">
+        <h3>Empezar vacío</h3>
+        <p>Sin archivo: defines tu saldo inicial y fecha de arranque.</p>
+        <label class="f">Saldo inicial (USD)
+          <input class="input" type="number" id="wSaldo" value="5000" min="0" step="0.01"></label>
+        <label class="f">Fecha de inicio
+          <input class="input" type="date" id="wFecha" value="2026-01-05"></label>
+        <button class="btn" id="wEmpty" style="width:100%;justify-content:center">Entrar vacío</button>
+      </div>
+    </div>
+    <p class="form-err" id="wErr" role="alert" hidden></p>
+  </div>
+</div>
+<!-- ===== detalle de movimiento (desde subfilas de Flujo) ===== -->
+<div class="overlay blur" id="detailOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <h2 id="detailTitle">Detalle del movimiento</h2>
+    <p class="desc" id="detailSub"></p>
+    <div class="review-card" id="detailBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" id="detailClose">Cerrar</button>
+      <button type="button" class="btn primary" id="detailGo">Ver en Movimientos</button>
+    </div>
+  </div>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

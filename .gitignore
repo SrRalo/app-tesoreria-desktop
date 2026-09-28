@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.db
+plantilla_flujo.xlsx
+dist/
+build/
+*.spec
