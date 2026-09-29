@@ -73,7 +73,10 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 | RF-12 | Importar Excel (backend) | Backend Python lee el Excel fuente, valida y lo importa a la BD relacional con reporte de errores y sin duplicar | Alta | Reimportar el mismo archivo no duplica; filas inválidas se reportan y no rompen la carga | Propuesto |
 | RF-13 | API de consultas (backend) | El front consulta la BD vía API JSON paginada; nunca lee el `.xlsx` directo por request | Alta | Con el Excel cerrado/borrado la app sigue mostrando y filtrando datos | Propuesto |
 | RF-14 | Primer arranque + plantilla | Con DB vacía la app ofrece (a) seleccionar Excel o (b) iniciar vacío con saldo inicial USD; además ofrece descargar `plantilla_flujo.xlsx` con formato válido | Alta | App nueva muestra el selector; (b) entra vacío; plantilla importada sin errores | Propuesto |
-| RF-15 | Configuración + borrado total | Vista Configuración con zona de peligro: botón "Borrar todo" protegido por clave de administrador en la UI; vacía movimientos, saldos, entidades y cuentas y vuelve al primer arranque | Alta | Sin clave no borra (403); con clave vuelve a `necesita_import=true` | Propuesto |
+| RF-15 | Configuración + borrado total | Vista Configuración con zona de peligro: botón "Borrar todo" protegido por clave de administrador en la UI; vacía movimientos, saldos, entidades y cuentas y vuelve al primer arranque (la bitácora se preserva) | Alta | Sin clave no borra (403); con clave vuelve a `necesita_import=true` | Propuesto |
+| RF-16 | Bitácora de acciones | Toda acción CRUD + sistema (crear, editar, realizado, eliminar, importar, init-vacío, borrado, exportar logs) deja fila en `bitacora` con fecha, acción, tabla, registro_id, detalle, dato_anterior/nuevo JSON y origen | Alta | Crear/editar/eliminar un movimiento genera evento consultable en `GET /api/bitacora` | Propuesto |
+| RF-17 | Exportación de logs | En Configuración, apartado colapsado "Exportación de logs" con filtros (desde/hasta, acción, texto) y botón Descargar .txt que respeta los filtros | Media | El .txt trae una línea por evento con antes/después; con filtros trae solo el subconjunto | Propuesto |
+| RF-18 | Recursos (origen del Excel) | En Configuración, apartado colapsado "Recursos" que muestra el último libro cargado (nombre + fecha + filas ok/error desde `import_log`) y botón de plantilla | Media | Tras importar se ve el nombre real del archivo y su fecha | Propuesto |
 
 ### Iconos sidebar (Lucide 18–23px)
 
@@ -152,7 +155,8 @@ Tablas (monousuario, sin login):
 - `movimientos(id, fecha_pago, tipo ['ingreso','egreso'], tipo_pago ['efectivo','transferencia','cheque'], concepto_pago ['nomina','prestamo', extensible], entidad_id FK NULL, cuenta_id FK (banco), centro_costo TEXT, valor_usd, status ['pendiente','aplazado','realizado'], observacion, created_at)` + `INDEX idx_mov(fecha_pago, tipo, entidad_id, cuenta_id, status)` — única tabla con CRUD. El formulario de ingreso y egreso usa los mismos 9 campos (banco, fecha de pago, tipo de pago, entidad, concepto, centro de costo, valor, status, observación).
 - `saldos_diarios(fecha PK, ing, egr, neto, acumulado_usd)` — precalculada; se recalcula solo al importar o CRUD.
 - `config(clave PK, valor)` — `saldo_inicial_usd`, `fecha_inicio`.
-- `import_log(id, archivo, filas_ok, filas_error, fecha)` — auditoría de cada importación.
+- `import_log(id, archivo, filas_ok, filas_error, fecha)` — auditoría de cada importación (archivo = nombre original subido).
+- `bitacora(id, fecha, accion, tabla, registro_id, detalle, dato_anterior JSON, dato_nuevo JSON, origen)` + `INDEX idx_bitacora(fecha, accion, tabla)` — auditoría de acciones; se preserva ante el borrado total.
 
 Reglas: cada CRUD en `movimientos` dispara `recalcular_saldos_desde(fecha)`. La DB vive junto al exe (`tesoreria.db`); la app se mueve con todo.
 

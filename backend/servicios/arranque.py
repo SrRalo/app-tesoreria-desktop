@@ -38,12 +38,42 @@ def init_vacio(con: sqlite3.Connection, saldo_inicial_usd=5000,
         if fecha_inicio:
             con.execute("INSERT OR REPLACE INTO config VALUES ('fecha_inicio',?)",
                         (str(fecha_inicio),))
+        from servicios.bitacora import registrar
+        registrar(con, "INIT_VACIO", "config", None,
+                  f"arranque vacío con saldo {saldo} USD"
+                  + (f" desde {fecha_inicio}" if fecha_inicio else ""),
+                  anterior=None,
+                  nuevo={"saldo_inicial_usd": saldo, "fecha_inicio": fecha_inicio or ""},
+                  origen="UI")
     return {"ok": True}
 
 
-def importar_archivo(xlsx: Path, db: Path) -> dict:
-    res = importar(Path(xlsx), Path(db))
+def importar_archivo(xlsx: Path, db: Path, nombre_original: str | None = None) -> dict:
+    from nucleo.basedatos import conectar
+    res = importar(Path(xlsx), Path(db), nombre_original=nombre_original)
+    con = conectar(Path(db))
+    try:
+        from servicios.bitacora import registrar
+        registrar(con, "IMPORTAR", "import_log", None,
+                  f"{res.get('archivo', xlsx.name)}: {res['filas_ok']} ok,"
+                  f" {len(res['errores'])} errores",
+                  anterior=None,
+                  nuevo={"archivo": res.get("archivo", xlsx.name),
+                         "filas_ok": res["filas_ok"],
+                         "filas_error": len(res["errores"])},
+                  origen="IMPORT", commit=True)
+    finally:
+        con.close()
     return {"ok": True, **res}
+
+
+def recursos(con: sqlite3.Connection) -> dict:
+    """Último Excel cargado (nombre + fecha + resultado) para vista Recursos."""
+    row = con.execute("SELECT archivo, filas_ok, filas_error, fecha FROM import_log"
+                      " ORDER BY id DESC LIMIT 1").fetchone()
+    n = con.execute("SELECT COUNT(*) c FROM movimientos").fetchone()["c"]
+    ultimo = dict(row) if row else None
+    return {"ultimo_excel": ultimo, "total_movimientos": n}
 
 
 def _destino_plantilla() -> Path:

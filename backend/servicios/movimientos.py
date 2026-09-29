@@ -49,7 +49,21 @@ def listar(con: sqlite3.Connection, tipo: str = "", status: str = "",
     rows = [dict(r) for r in con.execute(
         sql + " ORDER BY m.fecha_pago DESC, m.id DESC LIMIT ? OFFSET ?",
         args + [limit, off]).fetchall()]
+    hoy = date.today().strftime("%Y-%m-%d")
+    for r in rows:
+        try:
+            dias = (datetime.strptime(r["fecha_pago"], "%Y-%m-%d").date()
+                    - datetime.strptime(hoy, "%Y-%m-%d").date()).days
+        except ValueError:
+            dias = 0
+        r["dias"] = dias
+        r["es_vencido"] = dias < 0 and r["status"] in ("pendiente", "aplazado", "vencido")
     return {"total": total, "page": page, "limit": limit, "rows": rows}
+
+
+def _fila_dict(con: sqlite3.Connection, mid) -> dict | None:
+    r = con.execute(MOV_SELECT + " WHERE m.id=?", (mid,)).fetchone()
+    return dict(r) if r else None
 
 
 def crear(con: sqlite3.Connection, d: dict) -> int:
@@ -95,8 +109,18 @@ def crear(con: sqlite3.Connection, d: dict) -> int:
             (d["fecha_pago"], d["tipo"], d["tipo_pago"], row["id"], ent_id,
              cta["id"], d.get("centro_costo", ""), valor,
              d.get("status", "pendiente"), d.get("observacion", "")))
+        mid = cur.lastrowid
+        from servicios.bitacora import registrar
+        nuevo = _fila_dict(con, mid) or {
+            "id": mid, "fecha_pago": d["fecha_pago"], "tipo": d["tipo"],
+            "valor_usd": valor, "status": d.get("status", "pendiente"),
+            "entidad": d.get("entidad", ""), "banco": d.get("banco", "")}
+        registrar(con, "CREAR", "movimientos", mid,
+                  f"{nuevo.get('tipo')} {nuevo.get('valor_usd')} USD"
+                  f" {nuevo.get('fecha_pago')} ({nuevo.get('status')})",
+                  anterior=None, nuevo=nuevo, origen="UI")
         _recalcular(con)
-        return cur.lastrowid
+        return mid
 
 
 def editar(con: sqlite3.Connection, mid, fecha_pago: str, observacion: str = "") -> str:
@@ -108,11 +132,22 @@ def editar(con: sqlite3.Connection, mid, fecha_pago: str, observacion: str = "")
     except ValueError:
         raise ErrorValidacion("fecha_pago inválida") from None
     with con:
+        anterior = _fila_dict(con, mid)
+        if not anterior:
+            raise NoEncontrado("movimiento no encontrado")
         cur = con.execute(
             "UPDATE movimientos SET fecha_pago=?, observacion=?, status='aplazado' WHERE id=?",
             (fecha_pago, observacion, mid))
         if not cur.rowcount:
             raise NoEncontrado("movimiento no encontrado")
+        from servicios.bitacora import registrar
+        registrar(con, "EDITAR", "movimientos", mid,
+                  f"fecha {anterior.get('fecha_pago')}→{fecha_pago}, pasa a aplazado",
+                  anterior={"fecha_pago": anterior.get("fecha_pago"),
+                            "observacion": anterior.get("observacion"),
+                            "status": anterior.get("status")},
+                  nuevo={"fecha_pago": fecha_pago, "observacion": observacion,
+                         "status": "aplazado"}, origen="UI")
         _recalcular(con)
     return "aplazado"
 
@@ -121,19 +156,32 @@ def marcar_realizado(con: sqlite3.Connection, mid, hoy: str | None = None) -> st
     # RN-12: status=realizado con fecha de hoy.
     hoy = hoy or date.today().strftime("%Y-%m-%d")
     with con:
+        anterior = _fila_dict(con, mid)
+        if not anterior:
+            raise NoEncontrado("movimiento no encontrado")
         cur = con.execute("UPDATE movimientos SET status='realizado', fecha_pago=? WHERE id=?",
                           (hoy, mid))
         if not cur.rowcount:
             raise NoEncontrado("movimiento no encontrado")
+        from servicios.bitacora import registrar
+        registrar(con, "REALIZADO", "movimientos", mid,
+                  f"marcado realizado el {hoy} (antes {anterior.get('status')})",
+                  anterior={"status": anterior.get("status"),
+                            "fecha_pago": anterior.get("fecha_pago")},
+                  nuevo={"status": "realizado", "fecha_pago": hoy}, origen="UI")
         _recalcular(con)
     return hoy
 
 
 def eliminar(con: sqlite3.Connection, mid) -> None:
     with con:
-        row = con.execute("SELECT fecha_pago FROM movimientos WHERE id=?",
-                          (mid,)).fetchone()
-        if not row:
+        anterior = _fila_dict(con, mid)
+        if not anterior:
             raise NoEncontrado("movimiento no encontrado")
         con.execute("DELETE FROM movimientos WHERE id=?", (mid,))
+        from servicios.bitacora import registrar
+        registrar(con, "ELIMINAR", "movimientos", mid,
+                  f"eliminado {anterior.get('tipo')} {anterior.get('valor_usd')} USD"
+                  f" del {anterior.get('fecha_pago')}",
+                  anterior=anterior, nuevo=None, origen="UI")
         _recalcular(con)

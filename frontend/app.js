@@ -43,7 +43,7 @@ function askConfirm(title, msg, yesLabel) {
     $('#confirmNo').focus();
   });
 }
-const state = { escenario: 'base', horizonte: 30 };
+const state = { escenario: 'base', horizonte: 30, anio: '' };
 const flujoState = { modo: 'semana', desde: '2026-01-19', mes: '2026-01', anio: '2026',
   expIng: false, expEgr: false, weeks: null, weekCache: {}, semLoading: false, semDone: false, dataEnd: null };
 
@@ -87,7 +87,7 @@ function aplicarEscenario(cols, key) {
 }
 
 async function renderDashboard() {
-  const saldos = await Api.saldos();
+  const saldos = await Api.saldos(state.anio || '');
   if (!saldos.length) {
     // BD vacía recién iniciada: sin datos que graficar (el modal RF-14 guía la carga).
     $('#dashRange').textContent = 'Sin datos todavía · importa tu Excel o crea movimientos';
@@ -121,6 +121,7 @@ async function renderDashboard() {
 
   $('#dashRange').textContent =
     'Del ' + fmtFecha(sim[0].clave) + ' al ' + fmtFecha(sim[sim.length - 1].clave) +
+    (state.anio ? ' · año ' + state.anio : '') +
     ' · escenario ' + Api.ESCENARIOS[state.escenario].nombre + ' · USD';
 
   // Alerta de déficit: primer día con acumulado < 0
@@ -428,7 +429,8 @@ function drawChart(cols) {
 
 /* ===== MOVIMIENTOS (tabla + filtros + paginación + modal CRUD) ===== */
 const movState = { tipo: '', status: '', q: '', page: 1, limit: 20 };
-const badgeStatus = (s) => s === 'realizado' ? 'ok' : s === 'pendiente' ? 'warn' : 'info';
+const badgeStatus = (s) => s === 'realizado' ? 'ok' : s === 'vencido' ? 'bad'
+  : s === 'pendiente' ? 'warn' : 'info';
 
 async function renderMovimientos() {
   const { total, page, limit, rows } = await Api.movimientos(movState);
@@ -657,12 +659,31 @@ async function renderEntidades() {
       '<p>Aparecerán solos al guardar movimientos con entidad.</p></div>';
 }
 
-/* ===== CONFIGURACIÓN (zona de peligro RN-13) ===== */
+/* ===== CONFIGURACIÓN (estado + logs + recursos + zona de peligro RN-13) ===== */
 async function renderConfig() {
   let n = '?';
   try { n = (await Api.estado()).movimientos; } catch (e) { /* sin backend */ }
   $('#cfgInfo').textContent = 'Hay ' + n + ' movimientos cargados en este momento.';
   $('#cfgErr').hidden = true;
+  // Contador de bitácora con filtros actuales
+  try {
+    const r = await Api.bitacora({ ...logFiltros(), limit: 1 });
+    $('#logCount').textContent = 'Hay ' + r.total + ' eventos con estos filtros.';
+  } catch (e) { $('#logCount').textContent = 'Bitácora disponible con backend.'; }
+  $('#logErr').hidden = true;
+  // Recursos: último Excel cargado
+  try {
+    const rec = await Api.recursos();
+    const u = rec && rec.ultimo_excel;
+    $('#recInfo').textContent = u
+      ? 'Último libro: ' + u.archivo + ' · ' + u.fecha.replace('T', ' ').slice(0, 19) +
+        ' · ' + u.filas_ok + ' filas ok, ' + u.filas_error + ' con error.'
+      : 'Aún no se ha importado ningún Excel en esta base.';
+  } catch (e) { $('#recInfo').textContent = 'Recursos disponibles con backend.'; }
+}
+function logFiltros() {
+  return { desde: $('#logDesde').value || '', hasta: $('#logHasta').value || '',
+    accion: $('#logAccion').value || '', q: $('#logQ').value.trim() || '' };
 }
 
 /* ===== BIENVENIDA / PRIMER ARRANQUE (RF-14) ===== */
@@ -678,10 +699,109 @@ function wError(msg) {
   e.textContent = msg; e.hidden = false;
 }
 
+/* ===== NOTIFICACIONES (campana: vencidos + buckets ≤7/15/30/60/90) ===== */
+const NOTIF_GROUPS = [
+  ['vencido', 'Vencidos', 'bad'],
+  ['d7', 'Vence en ≤ 7 días · revisar a diario', 'warn'],
+  ['d15', 'Vence en 8–15 días', 'info'],
+  ['d30', 'Vence en 16–30 días', 'info'],
+  ['d60', 'Vence en 31–60 días', 'info'],
+  ['d90', 'Vence en 61–90 días', 'info'],
+  ['mas90', 'Más de 90 días', 'info'],
+];
+async function refreshNotifBadge() {
+  const b = $('#notifBadge');
+  try {
+    const n = await Api.notificaciones();
+    const v = n.badge || 0;
+    b.hidden = v <= 0;
+    b.textContent = v > 99 ? '99+' : String(v);
+    $('#notifBtn').setAttribute('aria-label', v > 0
+      ? v + ' notificaciones de vencimientos' : 'Notificaciones de vencimientos');
+  } catch (e) { b.hidden = true; }
+}
+function notifRow(m) {
+  const dias = m.dias < 0 ? 'hace ' + Math.abs(m.dias) + ' d' : 'en ' + m.dias + ' d';
+  return '<tr><td><div class="ent"><span class="ent-ico ' + (m.tipo === 'ingreso' ? 'in' : 'out') + '">' +
+    (m.tipo === 'ingreso' ? '↓' : '↑') + '</span><span>' + esc(m.entidad || '(sin entidad)') +
+    '<small>' + esc(fmtFecha(m.fecha_pago)) + ' · ' + dias + ' · ' + esc(m.concepto_pago || '') + '</small></span></div></td>' +
+    '<td class="amount ' + (m.tipo === 'ingreso' ? 'pos' : 'neg') + '">' +
+    (m.tipo === 'ingreso' ? '+' : '−') + fmtUSD.format(m.valor_usd) + '</td>' +
+    '<td><button class="icon-btn" data-nq="' + esc(m.entidad || '') + '">Ver</button></td></tr>';
+}
+async function openNotif() {
+  $('#notifOverlay').hidden = false;
+  $('#notifBody').innerHTML = '<p class="desc">Cargando vencimientos…</p>';
+  try {
+    const n = await Api.notificaciones();
+    $('#notifSub').textContent = 'Hoy ' + fmtFecha(n.hoy) + ' · ' + n.badge +
+      ' urgentes (vencidos + ≤7 días) · vencido solo alerta, no mueve caja.';
+    const tot = n.total_vencido_usd || { n: 0, ingreso: 0, egreso: 0 };
+    $('#notifBody').innerHTML = NOTIF_GROUPS.map(([k, label, cls]) => {
+      const g = (n.grupos && n.grupos[k]) || [];
+      if (!g.length) return '';
+      const shown = g.slice(0, 30);
+      return '<h3><span class="badge ' + cls + '">' + g.length + '</span> ' + label + '</h3>' +
+        '<div style="overflow-x:auto"><table class="tbl"><tbody>' +
+        shown.map(notifRow).join('') + '</tbody></table></div>' +
+        (g.length > 30 ? '<p class="desc">…y ' + (g.length - 30) + ' más en Movimientos.</p>' : '');
+    }).join('') || '<div class="empty"><h2>Sin vencidos ni próximos</h2><p>No hay saldos pendientes.</p></div>';
+    $('#notifFoot').textContent = 'Vencido por cobrar ' + fmtUSD.format(tot.ingreso || 0) +
+      ' · por pagar ' + fmtUSD.format(tot.egreso || 0) + ' · ' + (tot.n || 0) + ' vencidos.';
+  } catch (e) {
+    $('#notifBody').innerHTML = '<p class="form-err">No se pudieron cargar: ' + esc(e.message) + '</p>';
+  }
+  $('#notifClose').focus();
+}
+function closeNotif() { $('#notifOverlay').hidden = true; }
+
+/* ===== SELECTORES DE AÑO (Dashboard + Vista de Flujo) ===== */
+async function poblarAnios() {
+  let years = [];
+  try {
+    years = await Api.anios();
+  } catch (e) { years = []; }
+  if (!years.length) {
+    try {
+      const s = await Api.saldos('');
+      years = [...new Set(s.map((x) => String(x.fecha).slice(0, 4)))].sort();
+    } catch (e) { /* sin datos */ }
+  }
+  if (!years.length) years = [new Date().toISOString().slice(0, 4)];
+  // Dashboard: Todos + años
+  const dash = $('#fAnioDash');
+  const prevD = state.anio || '';
+  dash.innerHTML = '<option value="">Todos</option>' +
+    years.map((y) => '<option value="' + y + '">' + y + '</option>').join('');
+  dash.value = years.includes(prevD) ? prevD : '';
+  state.anio = dash.value;
+  // Flujo anual: solo años (sin Todos); conserva selección o usa el último
+  const fan = $('#fAnio');
+  const prevF = flujoState.anio;
+  fan.innerHTML = years.map((y) => '<option value="' + y + '">' + y + '</option>').join('');
+  fan.value = years.includes(prevF) ? prevF : years[years.length - 1];
+  flujoState.anio = fan.value;
+}
+
 /* ===== EVENTOS ===== */
 function init() {
   route();
+  poblarAnios().then(() => { renderDashboard(); renderFlujo(); }).catch(() => {});
+  refreshNotifBadge();
+  $('#notifBtn').addEventListener('click', openNotif);
+  $('#notifClose').addEventListener('click', closeNotif);
+  $('#notifOverlay').addEventListener('click', (e) => { if (e.target.id === 'notifOverlay') closeNotif(); });
+  $('#notifBody').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-nq]');
+    if (!b) return;
+    movState.q = b.dataset.nq; movState.page = 1;
+    $('#mQ').value = movState.q;
+    closeNotif();
+    location.hash = '#/movimientos';
+    renderMovimientos();
+  });
   $('#fEscenario').addEventListener('change', (e) => { state.escenario = e.target.value; renderDashboard(); });
+  $('#fAnioDash').addEventListener('change', (e) => { state.anio = e.target.value; renderDashboard(); });
   $('#fHorizonte').addEventListener('change', (e) => { state.horizonte = +e.target.value; renderDashboard(); });
   $('#btnMovimiento').addEventListener('click', () => openModal());
   $('#btnNewMov').addEventListener('click', () => openModal());
@@ -737,6 +857,7 @@ function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#movOverlay').hidden) closeModal();
     if (e.key === 'Escape' && !$('#detailOverlay').hidden) closeDetail();
+    if (e.key === 'Escape' && !$('#notifOverlay').hidden) closeNotif();
     if (e.key === 'Escape' && $('#movOverlay').hidden && $('#view-flujo').classList.contains('active')) clearSel();
   });
   $('#movForm').addEventListener('submit', submitModal);
@@ -782,6 +903,34 @@ function init() {
       return;
     }
     wError('La plantilla se descarga del backend (GET /api/plantilla). Por ahora usa Iniciar vacío.');
+  });
+  // Configuración: exportar logs .txt (respeta filtros) + plantilla + contador
+  const refreshLogCount = async () => {
+    try {
+      const r = await Api.bitacora({ ...logFiltros(), limit: 1 });
+      $('#logCount').textContent = 'Hay ' + r.total + ' eventos con estos filtros.';
+    } catch (e) { /* sin backend */ }
+  };
+  ['logDesde', 'logHasta', 'logAccion'].forEach((id) =>
+    $('#' + id).addEventListener('change', refreshLogCount));
+  let logT;
+  $('#logQ').addEventListener('input', () => { clearTimeout(logT); logT = setTimeout(refreshLogCount, 250); });
+  $('#btnLogsTxt').addEventListener('click', async () => {
+    const err = $('#logErr');
+    err.hidden = true;
+    try {
+      await Api.exportLogsTxt(logFiltros());
+      toast('Reporte .txt descargado');
+      renderConfig();
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+  });
+  $('#btnPlantilla2').addEventListener('click', async () => {
+    if (await Api.modo() === 'real') {
+      const a = document.createElement('a');
+      a.href = '/api/plantilla'; a.download = 'plantilla_flujo.xlsx'; a.click();
+      return;
+    }
+    toast('La plantilla se descarga con backend activo');
   });
   // Configuración: borrado total con clave de administrador (RN-13)
   $('#btnBorrar').addEventListener('click', async () => {

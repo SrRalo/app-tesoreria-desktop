@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS movimientos (
   centro_costo TEXT DEFAULT '',
   valor_usd REAL NOT NULL CHECK (valor_usd > 0),
   status TEXT NOT NULL DEFAULT 'pendiente'
-    CHECK (status IN ('pendiente','aplazado','realizado')),
+    CHECK (status IN ('pendiente','aplazado','realizado','vencido')),
   observacion TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -69,12 +69,31 @@ CREATE TABLE IF NOT EXISTS import_log (
   fecha TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Bitácora de auditoría v3: registra toda acción CRUD + sistema (origen UI/IMPORT/SISTEMA).
+-- dato_anterior/dato_nuevo guardan JSON con los valores antes/después para consultas post-fallo.
+-- Se preserva ante el borrado total (RN-13): borrar_todo() no la vacía.
+CREATE TABLE IF NOT EXISTS bitacora (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  accion TEXT NOT NULL CHECK (accion IN
+    ('CREAR','EDITAR','REALIZADO','ELIMINAR','IMPORTAR','INIT_VACIO','BORRADO_TOTAL','EXPORTAR_LOGS')),
+  tabla TEXT NOT NULL DEFAULT 'movimientos',
+  registro_id INTEGER,
+  detalle TEXT DEFAULT '',
+  dato_anterior TEXT DEFAULT '',
+  dato_nuevo TEXT DEFAULT '',
+  origen TEXT NOT NULL DEFAULT 'UI' CHECK (origen IN ('UI','IMPORT','SISTEMA'))
+);
+CREATE INDEX IF NOT EXISTS idx_bitacora
+  ON bitacora(fecha, accion, tabla);
+
 -- Catálogos base (RN-09)
-INSERT OR IGNORE INTO conceptos (nombre) VALUES ('nomina'), ('prestamo');
+INSERT OR IGNORE INTO conceptos (nombre) VALUES ('nomina'), ('prestamo'),
+  ('cobranza_clientes'), ('pago_proveedores');
 
 INSERT OR IGNORE INTO cuentas (banco, numero, saldo_inicial_usd) VALUES
   ('Pichincha','Cte 11111',0), ('Guayaquil','',0),
-  ('Internacional','',0), ('Caja','chica',0);
+  ('Internacional','',0), ('Caja','chica',0), ('PorDefinir','',0);
 
 INSERT OR IGNORE INTO config (clave, valor) VALUES
   ('saldo_inicial_usd','5000'), ('fecha_inicio','2026-01-05');

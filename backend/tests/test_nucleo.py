@@ -66,10 +66,11 @@ class TestCatalogos:
     def test_constantes_rn09(self):
         assert set(catalogos.TIPOS) == {"ingreso", "egreso"}
         assert set(catalogos.TIPOS_PAGO) == {"efectivo", "transferencia", "cheque"}
-        assert set(catalogos.STATUS) == {"pendiente", "aplazado", "realizado"}
+        assert set(catalogos.STATUS) == {"pendiente", "aplazado", "realizado", "vencido"}
 
     def test_crear_no_permite_aplazado_rn12(self):
         assert "aplazado" not in catalogos.STATUS_CREACION
+        assert "vencido" not in catalogos.STATUS_CREACION
         assert set(catalogos.STATUS_CREACION) == {"pendiente", "realizado"}
 
     def test_en_catalogo(self):

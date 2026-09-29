@@ -13,15 +13,21 @@ Endpoints:
   GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
   GET  /api/flujo?modo=anual&anio=YYYY           -> 12 columnas mes
   (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
-  GET  /api/saldos               -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard)
+   GET  /api/saldos?anio=YYYY          -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard; sin anio = todo)
+   GET  /api/anios                -> ["2025","2026",...] años con datos (selectores de año)
+   GET  /api/notificaciones?hoy=  -> {hoy, badge, resumen, total_vencido_usd, grupos}
+     (vencido + buckets d7/d15/d30/d60/d90/mas90; vencido solo alerta, no suma)
   GET  /api/movimientos?tipo=&status=&q=&page=&limit= -> lista paginada
   POST /api/movimientos -> crear (status solo pendiente|realizado)
   PUT  /api/movimientos/<id> -> editar fecha_pago+observacion (pasa a aplazado)
   PUT  /api/movimientos/<id>/realizado -> marcar realizado con fecha de hoy
   DELETE /api/movimientos/<id> -> eliminar
-  DELETE /api/datos             -> borrado total con clave admin (header X-Admin-Clave, RN-13)
-  GET  /api/entidades?tipo=    -> clientes/proveedores (lectura)
-  GET  /api/cuentas            -> bancos/cuentas (lectura)
+   DELETE /api/datos             -> borrado total con clave admin (header X-Admin-Clave, RN-13)
+   GET  /api/entidades?tipo=    -> clientes/proveedores (lectura)
+   GET  /api/cuentas            -> bancos/cuentas (lectura)
+   GET  /api/bitacora?accion=&tabla=&desde=&hasta=&q=&page=&limit= -> auditoría paginada
+   GET  /api/bitacora/export?accion=&tabla=&desde=&hasta=&q= -> reporte .txt (respeta filtros)
+   GET  /api/recursos           -> último Excel cargado (nombre+fecha+filas) + conteo
 
 Uso dev:
   python run.py --db ..\\database\\tesoreria.db --port 8000
@@ -42,10 +48,11 @@ from urllib.parse import parse_qs, urlparse
 from nucleo.basedatos import conectar
 from nucleo.rutas import db_default, front_file
 from servicios import movimientos as srv_mov
-from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada
+from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada, recursos
+from servicios import bitacora as srv_bit
 from servicios.configuracion import borrar_todo
 from servicios.entidades import listar_cuentas, listar_entidades
-from servicios.flujo import flujo_por_modo, saldos
+from servicios.flujo import anios, flujo_por_modo, saldos
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -65,6 +72,16 @@ class Handler(BaseHTTPRequestHandler):
     def _leer_json(self) -> dict:
         n = int(self.headers.get("Content-Length", 0) or 0)
         return json.loads((self.rfile.read(n) or b"{}").decode("utf-8") or "{}")
+
+    def _txt(self, texto: str, nombre: str):
+        body = texto.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Disposition", f"attachment; filename={nombre}")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, *a):  # silencioso
         pass
@@ -142,9 +159,79 @@ class Handler(BaseHTTPRequestHandler):
                 con.close()
             return self._json(res)
         if u.path == "/api/saldos":
+            q = parse_qs(u.query)
             con = conectar(self.db)
             try:
-                res = saldos(con)
+                res = saldos(con, q.get("anio", [""])[0])
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/anios":
+            con = conectar(self.db)
+            try:
+                res = anios(con)
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/notificaciones":
+            from servicios import notificaciones as srv_not
+            q = parse_qs(u.query)
+            con = conectar(self.db)
+            try:
+                res = srv_not.listar(con, q.get("hoy", [""])[0] or None)
+            except ValueError as e:
+                return self._json({"error": f"parámetros inválidos: {e}"}, 400)
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/bitacora":
+            q = parse_qs(u.query)
+            g = lambda k: q.get(k, [""])[0]
+            con = conectar(self.db)
+            try:
+                res = srv_bit.listar(con, accion=g("accion"), tabla=g("tabla"),
+                                     desde=g("desde"), hasta=g("hasta"),
+                                     texto=g("q"), page=g("page") or 1,
+                                     limit=g("limit") or 50)
+            except ValueError as e:
+                return self._json({"error": f"parámetros inválidos: {e}"}, 400)
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/bitacora/export":
+            from datetime import datetime
+            q = parse_qs(u.query)
+            g = lambda k: q.get(k, [""])[0]
+            filtros = {"accion": g("accion"), "tabla": g("tabla"),
+                       "desde": g("desde"), "hasta": g("hasta"), "q": g("q")}
+            con = conectar(self.db)
+            try:
+                completo = srv_bit.listar(con, accion=filtros["accion"],
+                                          tabla=filtros["tabla"], desde=filtros["desde"],
+                                          hasta=filtros["hasta"], texto=filtros["q"],
+                                          page=1, limit=200)
+                # Traer el resto si hay más de 200 (reporte completo, no paginado)
+                total = completo["total"]
+                filas = completo["rows"]
+                if total > len(filas):
+                    resto = srv_bit.listar(con, accion=filtros["accion"],
+                                           tabla=filtros["tabla"], desde=filtros["desde"],
+                                           hasta=filtros["hasta"], texto=filtros["q"],
+                                           page=1, limit=total if total <= 5000 else 5000)
+                    filas = resto["rows"]
+                txt = srv_bit.generar_txt(list(reversed(filas)), filtros)
+                srv_bit.registrar(con, "EXPORTAR_LOGS", "bitacora", None,
+                                  f"reporte txt con {len(filas)} eventos",
+                                  anterior=None, nuevo=dict(filtros), origen="UI",
+                                  commit=True)
+            finally:
+                con.close()
+            nombre = "bitacora_" + datetime.now().strftime("%Y%m%d_%H%M") + ".txt"
+            return self._txt(txt, nombre)
+        if u.path == "/api/recursos":
+            con = conectar(self.db)
+            try:
+                res = recursos(con)
             finally:
                 con.close()
             return self._json(res)
@@ -183,11 +270,12 @@ class Handler(BaseHTTPRequestHandler):
                                     environ={"REQUEST_METHOD": "POST"})
             if "archivo" not in form or not form["archivo"].filename:
                 return self._json({"error": "campo 'archivo' vacío"}, 400)
+            nombre_orig = form["archivo"].filename
             with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                 tmp.write(form["archivo"].file.read())
                 tmppath = Path(tmp.name)
             try:
-                res = importar_archivo(tmppath, self.db)
+                res = importar_archivo(tmppath, self.db, nombre_original=nombre_orig)
             finally:
                 tmppath.unlink(missing_ok=True)
             return self._json(res)
@@ -261,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Clave")
         self.end_headers()
 
 

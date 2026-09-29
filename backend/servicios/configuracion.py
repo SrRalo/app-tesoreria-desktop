@@ -35,5 +35,10 @@ def borrar_todo(con: sqlite3.Connection, clave: str | None) -> dict:
         con.execute("DELETE FROM entidades")
         con.execute("DELETE FROM cuentas")
         con.execute("DELETE FROM config")
+        # La bitácora se preserva para auditoría post-fallo (v3).
         con.executescript(SCHEMA.read_text(encoding="utf-8"))
+        from servicios.bitacora import registrar
+        registrar(con, "BORRADO_TOTAL", "sistema", None,
+                  "borrado total de datos (bitácora preservada)",
+                  anterior=None, nuevo=None, origen="UI")
     return {"ok": True}

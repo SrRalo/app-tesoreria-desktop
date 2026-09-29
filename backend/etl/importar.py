@@ -33,7 +33,7 @@ COLUMNAS = ["banco", "fecha_pago", "tipo", "tipo_pago", "entidad",
             "concepto_pago", "centro_costo", "valor_usd", "status", "observacion"]
 TIPOS = {"ingreso", "egreso"}
 TIPOS_PAGO = {"efectivo", "transferencia", "cheque"}
-STATUS = {"pendiente", "aplazado", "realizado"}
+STATUS = {"pendiente", "aplazado", "realizado", "vencido"}
 
 
 def _norm(s) -> str:
@@ -89,7 +89,7 @@ def validar(d: dict) -> list[str]:
     if not _norm(d["concepto_pago"]):
         err.append(f"concepto_pago vacío (fila {f})")
     if _norm(d["status"]).lower() not in STATUS:
-        err.append(f"status debe ser pendiente/aplazado/realizado (fila {f})")
+        err.append(f"status debe ser pendiente/aplazado/realizado/vencido (fila {f})")
     try:
         m = float(str(d["valor_usd"]).replace(",", "").replace("$", ""))
         if m <= 0:
@@ -101,8 +101,9 @@ def validar(d: dict) -> list[str]:
     return err
 
 
-def importar(excel_path: Path, db_path: Path) -> dict:
+def importar(excel_path: Path, db_path: Path, nombre_original: str | None = None) -> dict:
     filas = leer_filas(excel_path)
+    mostrado = nombre_original or excel_path.name
     con = conectar(db_path)
     ok, errores = 0, []
     with con:
@@ -131,8 +132,10 @@ def importar(excel_path: Path, db_path: Path) -> dict:
             valor = float(str(d["valor_usd"]).replace(",", "").replace("$", ""))
             dup = con.execute(
                 "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=? AND concepto_id=? "
-                "AND IFNULL(entidad_id,-1)=IFNULL(?, -1) AND cuenta_id=? AND valor_usd=?",
-                (fecha, tipo, con_id, ent_id, cta_id, valor)).fetchone()
+                "AND IFNULL(entidad_id,-1)=IFNULL(?, -1) AND cuenta_id=? AND valor_usd=?"
+                " AND centro_costo=? AND observacion=?",
+                (fecha, tipo, con_id, ent_id, cta_id, valor,
+                 _norm(d["centro_costo"]), _norm(d["observacion"]))).fetchone()
             if dup:
                 continue
             con.execute(
@@ -143,10 +146,10 @@ def importar(excel_path: Path, db_path: Path) -> dict:
                  _norm(d["centro_costo"]), valor, status, _norm(d["observacion"])))
             ok += 1
         con.execute("INSERT INTO import_log (archivo, filas_ok, filas_error) VALUES (?,?,?)",
-                    (excel_path.name, ok, len(errores)))
+                    (mostrado, ok, len(errores)))
     recalcular_saldos(con)
     con.close()
-    return {"filas_ok": ok, "errores": errores}
+    return {"filas_ok": ok, "errores": errores, "archivo": mostrado}
 
 
 def recalcular_saldos(con: sqlite3.Connection) -> None:

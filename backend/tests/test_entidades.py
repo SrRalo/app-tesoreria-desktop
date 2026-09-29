@@ -42,7 +42,7 @@ class TestCuentas:
     def test_4_bancos_ordenados(self, con_seed):
         con, _ = con_seed
         rows = listar_cuentas(con)
-        assert [r["banco"] for r in rows] == ["Caja", "Guayaquil", "Internacional", "Pichincha"]
+        assert [r["banco"] for r in rows] == ["Caja", "Guayaquil", "Internacional", "Pichincha", "PorDefinir"]
 
     def test_solo_lectura(self, con_seed):
         con, _ = con_seed
