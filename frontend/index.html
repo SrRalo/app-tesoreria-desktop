@@ -32,6 +32,9 @@
       <a class="nav-item" href="#/movimientos" data-view="movimientos">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 7 7 17"/><path d="M16 17H7V8"/></svg>
         <span>Movimientos</span></a>
+      <a class="nav-item" href="#/conciliacion" data-view="conciliacion">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3"/><path d="m22 10-7 7-3-3"/></svg>
+        <span>Conciliación</span></a>
       <a class="nav-item" href="#/entidades" data-view="entidades">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
         <span>Entidades</span></a>
@@ -143,6 +146,126 @@
             <table class="tbl matrix" id="matrix"></table>
           </div>
           <div class="panel-foot"><span id="matrixSel" aria-live="polite"></span><span style="width:12px"></span><span id="matrixFoot"></span></div>
+        </div>
+      </section>
+      <!-- ===== Conciliación Bancaria ===== -->
+      <section class="view" id="view-conciliacion" aria-label="Conciliación Bancaria">
+        <div class="page-head">
+          <div>
+            <h1>Conciliación Bancaria</h1>
+            <p class="desc" id="reconRange">Cuadra tus extractos bancarios con los movimientos de tu tesorería.</p>
+          </div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Filtros de conciliación">
+            <label class="f">Cuenta / Banco
+              <select class="input" id="cBancoSelect">
+                <option value="pichincha">Banco Pichincha (...2360)</option>
+                <option value="internacional">Banco Internacional (...7335)</option>
+                <option value="produbanco">Produbanco (...2593)</option>
+              </select></label>
+            <label class="f">Mes de corte
+              <input class="input" type="month" id="cMesCorte" value="2026-08"></label>
+            <button class="btn primary" id="btnAutoRecon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+              Cuadre Automático</button>
+          </div>
+        </div>
+
+        <!-- Tarjetas de resumen del cuadre -->
+        <div class="kpis" id="reconKpis" aria-live="polite">
+          <div class="kpi">
+            <div class="kpi-top"><span class="kpi-label">Saldo Extracto (Banco)</span></div>
+            <div class="kpi-val num" id="kpiBankBal">$236,014.39</div>
+            <div class="kpi-sub">Corte oficial al banco</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-top"><span class="kpi-label">Saldo en Libros (App)</span></div>
+            <div class="kpi-val num" id="kpiAppBal">$236,014.39</div>
+            <div class="kpi-sub">Movimientos ejecutados</div>
+          </div>
+          <div class="kpi hero">
+            <div class="kpi-top"><span class="kpi-label">Diferencia por Cuadrar</span></div>
+            <div class="kpi-val num" id="kpiDiff">$0.00</div>
+            <div class="kpi-sub" id="kpiDiffStatus">Cuadre exacto</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-top"><span class="kpi-label">Pendientes</span></div>
+            <div class="kpi-val num" id="kpiPendingCount">0 de 48</div>
+            <div class="kpi-sub">Líneas por conciliar</div>
+          </div>
+        </div>
+
+        <!-- Panel Doble de Conciliación -->
+        <div class="recon-dual-panel">
+          <!-- Panel Izquierdo: Lo Real (Extracto) -->
+          <div class="panel recon-col">
+            <div class="panel-head">
+              <h2>1. Extracto del Banco</h2>
+              <div class="spacer"></div>
+              <span class="badge info" id="bankListCount">48 transacciones</span>
+            </div>
+            <div class="recon-table-wrap">
+              <table class="tbl" id="tblExtracto" aria-label="Líneas del extracto bancario">
+                <thead>
+                  <tr>
+                    <th style="width:32px"></th>
+                    <th>Fecha</th>
+                    <th>Descripción Banco</th>
+                    <th class="amount">Monto USD</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyExtracto">
+                  <!-- Se llena desde app.js mediante GET /api/extractos -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Panel Derecho: Lo Esperado (Movimientos App) -->
+          <div class="panel recon-col">
+            <div class="panel-head">
+              <h2>2. Movimientos en App</h2>
+              <div class="spacer"></div>
+              <span class="badge warn" id="appListCount">12 pendientes</span>
+            </div>
+            <div class="recon-table-wrap">
+              <table class="tbl" id="tblAppMovs" aria-label="Movimientos en tesorería">
+                <thead>
+                  <tr>
+                    <th style="width:32px"></th>
+                    <th>Fecha</th>
+                    <th>Entidad / Concepto</th>
+                    <th class="amount">Monto USD</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyAppMovs">
+                  <!-- Se llena desde app.js mediante GET /api/movimientos -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barra Inferior para Conciliación Manual o Ajuste por Comisión -->
+        <div class="recon-action-bar panel" id="reconActionBar">
+          <div class="recon-summary">
+            <span>Selección Banco: <b class="num" id="selBankAmt">$0.00</b></span>
+            <span class="divider">|</span>
+            <span>Selección App: <b class="num" id="selAppAmt">$0.00</b></span>
+            <span class="divider">|</span>
+            <span>Diferencia: <b class="num neg" id="selDiffAmt">$0.00</b></span>
+          </div>
+          <div class="spacer"></div>
+          <div class="toolbar">
+            <button class="btn ghost" id="btnRegComision" title="Crear movimiento por comisión bancaria automáticamente">
+              + Registrar Comisión ($)
+            </button>
+            <button class="btn primary" id="btnEmparejar" disabled>
+              Conciliar Seleccionados
+            </button>
+          </div>
         </div>
       </section>
       <section class="view" id="view-movimientos" aria-label="Movimientos">
@@ -365,6 +488,6 @@
   </div>
 </div>
 <script src="data.js"></script>
-<script src="app.js"></script>
+<script src="app2.js"></script>
 </body>
 </html>
