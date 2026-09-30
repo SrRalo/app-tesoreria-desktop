@@ -127,8 +127,14 @@ def importar(excel_path: Path, db_path: Path, nombre_original: str | None = None
                 ent_id = con.execute("SELECT id FROM entidades WHERE nombre=?",
                                      (_norm(d["entidad"]),)).fetchone()[0]
             banco = _norm(d["banco"])
-            con.execute("INSERT OR IGNORE INTO cuentas (banco) VALUES (?)", (banco,))
-            cta_id = con.execute("SELECT id FROM cuentas WHERE banco=?", (banco,)).fetchone()[0]
+            cta = con.execute("SELECT id FROM cuentas WHERE banco=?",
+                              (banco,)).fetchone()
+            if cta is None:
+                con.execute("INSERT INTO cuentas (banco) VALUES (?)", (banco,))
+                cta_id = con.execute("SELECT id FROM cuentas WHERE banco=?",
+                                     (banco,)).fetchone()[0]
+            else:
+                cta_id = cta[0]
             valor = float(str(d["valor_usd"]).replace(",", "").replace("$", ""))
             dup = con.execute(
                 "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=? AND concepto_id=? "
@@ -168,6 +174,28 @@ def recalcular_saldos(con: sqlite3.Connection) -> None:
         primero = False
         con.execute("INSERT INTO saldos_diarios (fecha, ing, egr, neto, acumulado_usd)"
                     " VALUES (?,?,?,?,?)", (fecha, ing or 0, egr or 0, neto, acum))
+    con.commit()
+    recalcular_saldos_cuenta(con)
+
+
+def recalcular_saldos_cuenta(con: sqlite3.Connection) -> None:
+    """Reconstruye saldos_diarios_cuenta: apertura 31-jul + realizados por cuenta."""
+    con.execute("DELETE FROM saldos_diarios_cuenta")
+    for cta in con.execute("SELECT id, saldo_apertura_usd FROM cuentas").fetchall():
+        apertura = cta["saldo_apertura_usd"] or 0
+        cur = con.execute(
+            "SELECT fecha_pago, SUM(CASE WHEN tipo='ingreso' THEN valor_usd ELSE 0 END) ing,"
+            " SUM(CASE WHEN tipo='egreso' THEN valor_usd ELSE 0 END) egr"
+            " FROM movimientos WHERE status='realizado' AND cuenta_id=?"
+            " GROUP BY fecha_pago ORDER BY fecha_pago", (cta["id"],))
+        acum = apertura
+        for fecha, ing, egr in cur.fetchall():
+            neto = (ing or 0) - (egr or 0)
+            acum = round(acum + neto, 2)
+            con.execute("INSERT INTO saldos_diarios_cuenta"
+                        " (fecha, cuenta_id, ing, egr, neto, acumulado_usd)"
+                        " VALUES (?,?,?,?,?,?)",
+                        (fecha, cta["id"], ing or 0, egr or 0, neto, acum))
     con.commit()
 
 

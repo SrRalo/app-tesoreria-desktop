@@ -22,11 +22,11 @@ const MockApi = (() => {
     'CAMARONERA CAMANMOR', 'PACIFICCAM', 'PRODUMAR', 'EXPORCAMBRIT'];
   const PROVEEDORES = ['Nómina Planta', 'Larvas del Golfo', 'Insumos Marinos SA', 'Fábrica Pro',
     'Servicios Adm', 'Logística VTA', 'Banco Pichincha', 'Banco Internacional'];
-  const BANCOS = ['Pichincha', 'Guayaquil', 'Internacional', 'Caja', 'PorDefinir'];
+  const BANCOS = ['Pichincha', 'Guayaquil', 'Internacional', 'Caja', 'PorDefinir', 'Produbanco'];
   const TIPOS_PAGO = ['transferencia', 'transferencia', 'transferencia', 'efectivo', 'cheque'];
   const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  const SALDO_INICIAL_DEFAULT = 5000;
+  const SALDO_INICIAL_DEFAULT = 0;
   let SALDO_INI = SALDO_INICIAL_DEFAULT;
   const INICIO = '2026-01-05';
   const NDIAS = 150;
@@ -116,7 +116,7 @@ const MockApi = (() => {
     const errs = [];
     if (!['ingreso', 'egreso'].includes(d.tipo)) errs.push('tipo inválido (RN-09)');
     if (!['efectivo', 'transferencia', 'cheque'].includes(d.tipo_pago)) errs.push('tipo_pago inválido (RN-09)');
-    if (!['nomina', 'prestamo', 'cobranza_clientes', 'pago_proveedores'].includes(String(d.concepto_pago || '').toLowerCase())) errs.push('concepto_pago inválido (RN-09)');
+    if (!['nomina', 'prestamo', 'cobranza_clientes', 'pago_proveedores', 'comision'].includes(String(d.concepto_pago || '').toLowerCase())) errs.push('concepto_pago inválido (RN-09)');
     if (!['pendiente', 'aplazado', 'realizado', 'vencido'].includes(d.status)) errs.push('status inválido (RN-09)');
     if (!BANCOS.includes(d.banco)) errs.push('banco desconocido');
     if (!(+d.valor_usd > 0)) errs.push('valor_usd debe ser > 0');
@@ -183,7 +183,7 @@ const MockApi = (() => {
         saldo_inicial_usd: SALDO_INI };
     },
     // Iniciar vacío RF-14 (igual que POST /api/init-vacio): limpia y fija saldo+fecha.
-    initVacio: async ({ saldo_inicial_usd = 5000, fecha_inicio = '2026-01-05' } = {}) => {
+    initVacio: async ({ saldo_inicial_usd = 0, fecha_inicio = '2026-01-05' } = {}) => {
       movs.length = 0;
       SALDO_INI = +saldo_inicial_usd || 0;
       saldos = computeSaldos();
@@ -203,10 +203,11 @@ const MockApi = (() => {
       nota: 'Demo local: importa con el backend para ver el libro de origen.' }),
     flujo: async (modo, p = {}) => {
       let cols, esMes = false;
-      if (modo === 'trimestre') { cols = columnasMeses(p.mes || '2026-01', 3); esMes = true; }
-      else if (modo === 'anual') { cols = columnasMeses((p.anio || '2026') + '-01', 12); esMes = true; }
+      const m = modo === 'semana' ? 'diario' : modo === 'anual' ? 'mensual' : modo;
+      if (m === 'trimestre') { cols = columnasMeses(p.mes || '2026-01', 3); esMes = true; }
+      else if (m === 'mensual') { cols = columnasMeses((p.anio || '2026') + '-01', 12); esMes = true; }
       else cols = columnasSemana(p.desde);
-      return { modo, ...armarFlujo(cols, esMes) };
+      return { modo: m, ...armarFlujo(cols, esMes) };
     },
     saldos: async (anio = '') => anio ? saldos.filter((s) => s.fecha.startsWith(anio)) : saldos,
     anios: async () => [...new Set(saldos.map((s) => s.fecha.slice(0, 4)))].sort(),
@@ -236,7 +237,13 @@ const MockApi = (() => {
       return { total: rows.length, page, limit, rows: rows.slice((page - 1) * limit, page * limit) };
     },
     entidades: async (tipo) => resumenEntidades(tipo || 'cliente'),
-    cuentas: async () => BANCOS.map((b) => ({ banco: b, numero: b === 'Pichincha' ? 'Cte 11111' : '', saldo_usd: 0 })),
+    cuentas: async () => BANCOS.map((b) => ({ banco: b, numero: b === 'Pichincha' ? '2100319432' : '',
+      saldo_usd: 0, banco_dice: null, diferencia: null, tiene_extracto: 0,
+      aviso: 'Sin extracto de agosto 2026 — saldo 0 referencial, no afecta el cuadre' })),
+    cuadre: async (mes = '2026-08') => ({ mes, cuadra: true,
+      total: { apertura: 0, ing: 0, egr: 0, calculado: 0, banco_dice: 0, diferencia: 0 },
+      cuentas: [], nota: 'Cuadre disponible con backend.' }),
+    pendientes: async () => ({ total: 0, rows: [] }),
     // CRUD (misma forma que POST/PUT/DELETE /api/movimientos; recalcula saldos)
     // Reglas: al crear solo pendiente/realizado; al editar solo fecha+obs y pasa a aplazado.
     crear: async (d) => {
@@ -331,6 +338,15 @@ const RealApi = {
     return r;
   },
   flujo: (modo, p = {}) => jfetch('/api/flujo?' + _qs({ modo, desde: p.desde, mes: p.mes, anio: p.anio })),
+  cuadre: (mes = '2026-08') => jfetch('/api/cuadre?' + _qs({ mes })),
+  pendientes: (p = {}) => jfetch('/api/conciliacion/pendientes?' + _qs(p)),
+  importarExtracto: async (f, banco) => {
+    const fd = new FormData();
+    fd.append('archivo', f, f.name);
+    fd.append('banco', banco);
+    const r = await jfetch('/api/extractos/importar', { method: 'POST', body: fd });
+    return r;
+  },
   saldos: (anio = '') => jfetch('/api/saldos?' + _qs({ anio })),
   anios: () => jfetch('/api/anios'),
   notificaciones: () => jfetch('/api/notificaciones'),
@@ -403,6 +419,14 @@ const Api = (() => {
       return RealApi.importar(f);
     },
     flujo: usar('flujo'),
+    cuadre: usar('cuadre'),
+    pendientes: usar('pendientes'),
+    importarExtracto: async (f, banco) => {
+      await sondear();
+      if (modo !== 'real')
+        throw new Error('sin backend: abre la app desde el ejecutable o el servidor con API');
+      return RealApi.importarExtracto(f, banco);
+    },
     saldos: usar('saldos'),
     anios: usar('anios'),
     notificaciones: usar('notificaciones'),

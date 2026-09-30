@@ -44,6 +44,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
 .brand{display:flex;align-items:center;gap:10px;padding:18px 20px 14px}
 .brand-name{font-size:22px;font-weight:700;line-height:1.1}
 .brand-cap{font-size:11px;letter-spacing:1.7px;color:var(--muted-2)}
+.side-collapse-btn{margin-left:auto;width:37px;height:37px;padding:0;justify-content:center;color:var(--muted)}
+.side-collapse-btn:hover{color:var(--primary-ink);background:var(--nav-active-bg)}
 .nav{padding:6px 12px;display:flex;flex-direction:column;gap:2px}
 .nav-cap{font-size:11px;letter-spacing:1.4px;color:#63768a;padding:10px 12px 4px}
 .nav-item{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;border-radius:var(--radius-sm);
@@ -270,6 +272,16 @@ table.matrix{border-collapse:separate;border-spacing:0;min-width:100%;font-size:
 .tab.active{color:var(--primary-ink);border-bottom-color:var(--primary)}
 .vol{height:6px;border-radius:3px;background:var(--line-soft);min-width:90px;overflow:hidden}
 .vol i{display:block;height:100%;background:var(--primary);border-radius:3px}
+/* ===== bancos: saldos + estados resumidos ===== */
+.bank-cards{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
+.bank-cards .kpi{margin:0}
+@media(max-width:767px){.bank-cards{grid-template-columns:1fr}}
+.stmt-row td{background:#f8fafc;padding:0 16px 12px 66px;border-top:0}
+.stmt{border:1px solid var(--line-soft);border-radius:var(--radius-sm);background:#fff}
+.stmt summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--primary-ink);padding:8px 12px;list-style:none}
+.stmt summary::-webkit-details-marker{display:none}
+.stmt-body{padding:0 12px 12px}
+.stmt-body .desc{font-size:12px;color:var(--muted-2);margin-top:8px}
 /* ===== bienvenida RF-14 ===== */
 .modal.welcome{max-width:720px;text-align:left}
 .welcome-brand{display:flex;justify-content:center;margin-bottom:10px}
@@ -314,8 +326,10 @@ table.matrix{border-collapse:separate;border-spacing:0;min-width:100%;font-size:
   .toolbar .btn,.toolbar select.input{flex:1}
 }
 body.side-min .sidebar{width:var(--sidebar-w-min)}
+body.side-min .brand{justify-content:center;padding:18px 8px 14px}
 body.side-min .brand-name,body.side-min .brand-cap,body.side-min .nav-cap,
 body.side-min .nav-item span,body.side-min .side-foot span{display:none}
+body.side-min .side-collapse-btn{margin:0}
 body.side-min .nav-item{justify-content:center;padding:0}
 /* ===== notificaciones (campana topbar + panel) ===== */
 .notif-btn{position:relative;width:37px;height:37px;border-radius:50%;border:1px solid transparent;

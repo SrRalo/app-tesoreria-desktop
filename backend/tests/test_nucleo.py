@@ -51,7 +51,7 @@ class TestBaseDatos:
         assert {"Pichincha", "Guayaquil", "Internacional", "Caja"} <= bancos
         saldo = con.execute(
             "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]
-        assert float(saldo) == 5000
+        assert float(saldo) == 0
 
     def test_fk_rechaza_movimiento_huerfano(self, con):
         with pytest.raises(sqlite3.IntegrityError):

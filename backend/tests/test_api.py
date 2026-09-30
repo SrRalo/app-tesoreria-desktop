@@ -147,5 +147,62 @@ def test_importar_multipart(base):
     assert status == 200 and res["filas_ok"] == 3
     _, est, _ = llamar(url, "GET", "/api/estado")
     assert est == {"db_lista": True, "movimientos": 3, "necesita_import": False}
-    _, flujo, _ = llamar(url, "GET", "/api/flujo?modo=semana&desde=2026-01-05")
+    _, flujo, _ = llamar(url, "GET", "/api/flujo?modo=diario&desde=2026-01-05")
     assert len(flujo["columnas"]) == 7 and flujo["columnas"][0]["ing"] == 8500
+
+
+def test_cuadre_y_cuentas_con_aviso(base):
+    url, _ = base
+    status, res, _ = llamar(url, "GET", "/api/cuadre?mes=2026-08")
+    assert status == 200 and res["mes"] == "2026-08"
+    assert set(res["total"]) >= {"apertura", "calculado", "banco_dice", "diferencia"}
+    sin_ext = [c for c in res["cuentas"] if not c["tiene_extracto"]]
+    assert sin_ext and all("Sin extracto" in c["aviso"] for c in sin_ext)
+    _, cuentas, _ = llamar(url, "GET", "/api/cuentas")
+    assert any("aviso" in c for c in cuentas)
+
+
+def test_extracto_importar_y_pendientes(base):
+    url, tmp = base
+    html = tmp / "pich.xls"
+    html.write_text(
+        "<html><body><table>"
+        "<tr><td><b>Saldo Anterior:</b></td><td>1000.00</td></tr>"
+        "<tr><td><b>Saldo Actual:</b></td><td>1200.00</td></tr>"
+        "<tr><td><b>Fecha este Corte:</b></td><td>31-08-2026</td></tr>"
+        "<tr><td>DETALLE DE MOVIMIENTOS</td></tr>"
+        "<tr><td>FECHA</td><td>OFIC.</td><td>N.DOC.</td><td>DESCRIPCION</td>"
+        "<td>DEBITO</td><td>CREDITO</td><td>SALDO</td></tr>"
+        "<tr><td>03-ago.</td><td>8386</td><td>D1</td><td>TRANSF RECIBIDA</td>"
+        "<td>0.00</td><td>500.00</td><td>1500.00</td></tr>"
+        "<tr><td>04-ago.</td><td>0012</td><td>D2</td><td>PAGO X</td>"
+        "<td>300.00</td><td>0.00</td><td>1200.00</td></tr>"
+        "</table></body></html>", encoding="utf-8")
+
+    def multipart_archivo(path, banco):
+        b = "BND"
+        head = (f"--{b}\r\nContent-Disposition: form-data; name=\"archivo\"; "
+                f"filename=\"{path.name}\"\r\nContent-Type: text/html\r\n\r\n").encode()
+        mid = (f"\r\n--{b}\r\nContent-Disposition: form-data; name=\"banco\"\r\n\r\n"
+               f"{banco}\r\n--{b}--\r\n").encode()
+        return head + path.read_bytes() + mid, f"multipart/form-data; boundary={b}"
+
+    cuerpo, ctype = multipart_archivo(html, "pichincha")
+    status, res, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
+    assert status == 200 and res["lineas_nuevas"] == 2
+    assert res["saldo_actual"] == 1200 and res["apertura_fijada"] == 1000
+    # Reimportar no duplica
+    cuerpo, ctype = multipart_archivo(html, "pichincha")
+    status, res2, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
+    assert status == 200 and res2["lineas_nuevas"] == 0 and res2["duplicadas"] == 2
+    # Cuadre del mes cuadra tras importar
+    _, cuadro, _ = llamar(url, "GET", "/api/cuadre?mes=2026-08")
+    pich = next(c for c in cuadro["cuentas"] if c["banco"] == "Pichincha")
+    assert pich["diferencia"] == 0
+    # Banco inválido se rechaza
+    cuerpo, ctype = multipart_archivo(html, "otro")
+    status, res3, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
+    assert status == 400 and "error" in res3
+    # Pendientes: todo quedó amarrado (auto o generado)
+    _, pend, _ = llamar(url, "GET", "/api/conciliacion/pendientes")
+    assert pend == {"total": 0, "rows": []}

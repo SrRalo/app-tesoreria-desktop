@@ -33,9 +33,9 @@ class TestBorrado:
         assert despues["saldos_diarios"] == 0
         assert despues["import_log"] == 0
         assert despues["entidades"] == 0
-        assert despues["conceptos"] == 4 and despues["cuentas"] == 5  # seeds RN-09
+        assert despues["conceptos"] == 5 and despues["cuentas"] == 6  # seeds RN-09 + v3 (comision, Produbanco)
         assert float(con.execute(
-            "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]) == 5000
+            "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]) == 0
         # v3: la bitácora se preserva y registra el borrado
         nbit = con.execute("SELECT COUNT(*) c FROM bitacora").fetchone()["c"]
         assert nbit >= 1

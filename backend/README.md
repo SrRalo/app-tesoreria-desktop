@@ -34,6 +34,19 @@ trimestre: `&mes=YYYY-MM` → ese + 2 siguientes; anual: `&anio=YYYY`),
 `GET/POST /api/movimientos` (filtros `tipo,status,q,page,limit`), `GET /api/entidades`, `GET /api/cuentas`,
 `DELETE /api/datos` (borrado total con header `X-Admin-Clave`, RN-13).
 
+Estados de cuenta (RF-19/RF-20, dato real para cuadrar):
+
+```powershell
+cd backend
+# Importar un estado de cuenta (pichincha|internacional|produbanco)
+python -m etl.extractos.importar_extracto "..\..\fuente de datos\01 31 agosto Pichiccha.xls" pichincha --db ..\database\tesoreria.db
+```
+
+o por HTTP: `POST /api/extractos/importar` (multipart `archivo` + `banco`),
+`GET /api/cuadre?mes=2026-08` (calculado vs corte por cuenta + total),
+`GET /api/conciliacion/pendientes` (líneas sin amarre). La apertura es el
+corte 31-jul-2026; reimportar no duplica; comisiones → concepto `comision`.
+
 ## Primer arranque (app empaquetada)
 
 1. La app detecta DB vacía (`GET /api/estado -> necesita_import=true`) y muestra modal:

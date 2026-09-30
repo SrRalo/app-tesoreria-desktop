@@ -39,10 +39,10 @@ class TestEntidades:
 
 
 class TestCuentas:
-    def test_4_bancos_ordenados(self, con_seed):
+    def test_bancos_ordenados(self, con_seed):
         con, _ = con_seed
         rows = listar_cuentas(con)
-        assert [r["banco"] for r in rows] == ["Caja", "Guayaquil", "Internacional", "Pichincha", "PorDefinir"]
+        assert [r["banco"] for r in rows] == ["Caja", "Guayaquil", "Internacional", "Pichincha", "PorDefinir", "Produbanco"]
 
     def test_solo_lectura(self, con_seed):
         con, _ = con_seed

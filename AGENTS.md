@@ -31,7 +31,7 @@ App de flujo de tesorería: front vanilla + backend Python con Excel como fuente
 - Un solo archivo CSS y un solo JS mientras sea legible. No fragmentar prematuramente.
 - Estilos inline en HTML solo para prototipado rápido; mover a `styles.css` al consolidar.
 - Preferir tablas + tarjetas simples y gráficos con `<canvas>` vanilla o SVG. No librerías de charts salvo petición explícita.
-- Backend Python: ETL en un paquete (`etl/importar.py` + `etl/plantilla.py`), lógica en servicios (`servicios/flujo.py`, `movimientos.py`, `entidades.py`, `arranque.py`), infra en `nucleo/`, API en `api/servidor.py` (entrypoint `run.py`; `app.py` es shim compatible), tests pytest en `tests/`. SQL con índice `idx_mov(fecha_pago, tipo, entidad_id, cuenta_id, status)` + tabla `saldos_diarios` precalculada (solo `realizado` suma al flujo). Catálogos cerrados RN-09. `GET /api/flujo?modo=semana|trimestre|anual` sin paginación.
+- Backend Python: ETL en un paquete (`etl/importar.py` + `etl/plantilla.py`), lógica en servicios (`servicios/flujo.py`, `movimientos.py`, `entidades.py`, `arranque.py`), infra en `nucleo/`, API en `api/servidor.py` (entrypoint `run.py`; `app.py` es shim compatible), tests pytest en `tests/`. SQL con índice `idx_mov(fecha_pago, tipo, entidad_id, cuenta_id, status)` + tabla `saldos_diarios` precalculada (solo `realizado` suma al flujo). Catálogos cerrados RN-09. `GET /api/flujo?modo=diario|trimestre|mensual` sin paginación.
 
 ## Diseño
 - Skill `impeccable` instalada en `.opencode/skills/impeccable` (comando `/impeccable`). Usar `init` antes de diseñar pantallas nuevas.

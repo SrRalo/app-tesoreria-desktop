@@ -29,6 +29,10 @@ def verificar_clave(clave: str | None) -> None:
 def borrar_todo(con: sqlite3.Connection, clave: str | None) -> dict:
     verificar_clave(clave)
     with con:
+        con.execute("DELETE FROM conciliacion")
+        con.execute("DELETE FROM extracto_lineas")
+        con.execute("DELETE FROM cortes_bancarios")
+        con.execute("DELETE FROM saldos_diarios_cuenta")
         con.execute("DELETE FROM movimientos")
         con.execute("DELETE FROM saldos_diarios")
         con.execute("DELETE FROM import_log")

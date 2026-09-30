@@ -9,9 +9,9 @@ Endpoints:
   POST /api/init-vacio         -> {saldo_inicial_usd, fecha_inicio}
   POST /api/importar           -> multipart con campo 'archivo' (.xlsx)
   GET  /api/plantilla          -> descarga plantilla_flujo.xlsx (la genera si falta)
-  GET  /api/flujo?modo=semana&desde=YYYY-MM-DD   -> 7 columnas día (nombre + fecha)
-  GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
-  GET  /api/flujo?modo=anual&anio=YYYY           -> 12 columnas mes
+   GET  /api/flujo?modo=diario&desde=YYYY-MM-DD    -> 7 columnas día (nombre + fecha)
+   GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
+   GET  /api/flujo?modo=mensual&anio=YYYY         -> 12 columnas mes
   (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
    GET  /api/saldos?anio=YYYY          -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard; sin anio = todo)
    GET  /api/anios                -> ["2025","2026",...] años con datos (selectores de año)
@@ -28,6 +28,11 @@ Endpoints:
    GET  /api/bitacora?accion=&tabla=&desde=&hasta=&q=&page=&limit= -> auditoría paginada
    GET  /api/bitacora/export?accion=&tabla=&desde=&hasta=&q= -> reporte .txt (respeta filtros)
    GET  /api/recursos           -> último Excel cargado (nombre+fecha+filas) + conteo
+   POST /api/extractos/importar  -> multipart con 'archivo' + 'banco'
+     (pichincha|internacional|produbanco): importa el estado de cuenta,
+     fija la apertura 31-jul, concilia automático por fecha y recalcula
+   GET  /api/cuadre?mes=2026-08   -> calculado vs corte por cuenta + total
+   GET  /api/conciliacion/pendientes -> líneas de extracto sin amarre
 
 Uso dev:
   python run.py --db ..\\database\\tesoreria.db --port 8000
@@ -50,6 +55,8 @@ from nucleo.rutas import db_default, front_file
 from servicios import movimientos as srv_mov
 from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada, recursos
 from servicios import bitacora as srv_bit
+from servicios import conciliacion as srv_conc
+from servicios import cuadre as srv_cuadre
 from servicios.configuracion import borrar_todo
 from servicios.entidades import listar_cuentas, listar_entidades
 from servicios.flujo import anios, flujo_por_modo, saldos
@@ -119,9 +126,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.wfile.write(body)
         if u.path == "/api/flujo":
             q = parse_qs(u.query)
-            modo = q.get("modo", ["semana"])[0]
-            if modo not in ("semana", "trimestre", "anual"):
-                return self._json({"error": "modo debe ser semana|trimestre|anual"}, 400)
+            modo = q.get("modo", ["diario"])[0]
+            if modo not in ("diario", "trimestre", "mensual", "semana", "anual"):
+                return self._json({"error": "modo debe ser diario|trimestre|mensual"}, 400)
             con = conectar(self.db)
             try:
                 res = flujo_por_modo(con, modo, q)
@@ -235,6 +242,27 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
             return self._json(res)
+        if u.path == "/api/cuadre":
+            q = parse_qs(u.query)
+            con = conectar(self.db)
+            try:
+                res = srv_cuadre.cuadre_mes(con, q.get("mes", ["2026-08"])[0])
+            finally:
+                con.close()
+            return self._json(res)
+        if u.path == "/api/conciliacion/pendientes":
+            q = parse_qs(u.query)
+            con = conectar(self.db)
+            try:
+                cid = q.get("cuenta_id", [""])[0] or None
+                res = srv_conc.pendientes(
+                    con, int(cid) if cid else None,
+                    int(q.get("limit", ["200"])[0]))
+            except ValueError as e:
+                return self._json({"error": f"parámetros inválidos: {e}"}, 400)
+            finally:
+                con.close()
+            return self._json({"total": len(res), "rows": res})
         # estático genérico (styles.css, app.js, data.js)
         rel = (u.path or "/").lstrip("/")
         if ".." not in rel and "/" not in rel:
@@ -255,7 +283,7 @@ class Handler(BaseHTTPRequestHandler):
             d = self._leer_json()
             con = conectar(self.db)
             try:
-                res = init_vacio(con, d.get("saldo_inicial_usd", 5000),
+                res = init_vacio(con, d.get("saldo_inicial_usd", 0),
                                  d.get("fecha_inicio", ""))
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)
@@ -276,6 +304,33 @@ class Handler(BaseHTTPRequestHandler):
                 tmppath = Path(tmp.name)
             try:
                 res = importar_archivo(tmppath, self.db, nombre_original=nombre_orig)
+            finally:
+                tmppath.unlink(missing_ok=True)
+            return self._json(res)
+        if u.path == "/api/extractos/importar":
+            # Estado de cuenta bancario: multipart con 'archivo' + 'banco'
+            # (pichincha|internacional|produbanco).
+            ctype = self.headers.get("Content-Type", "")
+            if "multipart" not in ctype:
+                return self._json({"error": "envíe multipart con campos 'archivo' y 'banco'"}, 400)
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
+                                    environ={"REQUEST_METHOD": "POST"})
+            if "archivo" not in form or not form["archivo"].filename:
+                return self._json({"error": "campo 'archivo' vacío"}, 400)
+            banco = form.getvalue("banco", "") or ""
+            if banco.strip().lower() not in ("pichincha", "internacional", "produbanco"):
+                return self._json({"error": "campo 'banco' debe ser pichincha|internacional|produbanco"}, 400)
+            nombre_orig = form["archivo"].filename
+            with tempfile.NamedTemporaryFile(delete=False,
+                                             suffix=Path(nombre_orig).suffix or ".dat") as tmp:
+                tmp.write(form["archivo"].file.read())
+                tmppath = Path(tmp.name)
+            try:
+                from etl.extractos.importar_extracto import importar_extracto
+                res = importar_extracto(tmppath, banco, self.db,
+                                        nombre_original=nombre_orig)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
             finally:
                 tmppath.unlink(missing_ok=True)
             return self._json(res)
