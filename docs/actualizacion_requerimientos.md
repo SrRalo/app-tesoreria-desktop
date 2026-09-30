@@ -102,3 +102,13 @@ Tablas (monousuario, sin login):
 1. **Coherencia Documental:** Resuelves el hueco donde RF-19 y RF-20 estaban marcados como "Hecho", pero no existía una pantalla definida en la UI ni las tablas en el esquema §8.3 para sostenerlo.
 2. **Claridad Financiera:** Al definir los 3 tipos de saldos (Real, Libros y Proyectado) en la **RN-14**, el programador frontend sabrá exactamente qué valor mostrar en las tarjetas de bancos del Dashboard y en las filas de la Vista de Flujo.
 3. **Casos de Uso Reales:** Con las **RN-15** y **RN-16**, la aplicación no se trancará cuando una transferencia llegue 1 día después o cuando Pichincha/Produbanco cobren una comisión pequeña de $0.50 o $1.00 USD por transferencia.
+
+
+Checklist de verificación para tu backend/parser
+Soporte de lectura flexible: Validar que la librería de parsing maneje buffers binarios .xls, .xlsx y estructuración desde HTML/TSV.
+
+Detección dinámica de cabeceras: Escanear las filas hasta encontrar los campos obligatorios del modelo de datos.
+
+Filtro de subtotales/totales: Ignorar filas con palabras clave como Total, Subtotal, Saldo Final en las tablas de movimientos o cartera.
+
+Cast numérico robusto: Remover espacios, símbolos de moneda ($) y estandarizar puntos/comas decimales antes de convertir a float o decimal.s
