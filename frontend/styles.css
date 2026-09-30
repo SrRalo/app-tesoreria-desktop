@@ -313,7 +313,7 @@ table.matrix{border-collapse:separate;border-spacing:0;min-width:100%;font-size:
   .toolbar .btn,.toolbar select.input{flex:1}
 }
 body.side-min .sidebar{width:var(--sidebar-w-min)}
-body.side-min .brand{justify-content:center;padding:18px 8px 14px}
+body.side-min .brand{flex-direction:column;justify-content:center;padding:14px 8px;gap:10px}
 body.side-min .brand-name,body.side-min .brand-cap,body.side-min .nav-cap,
 body.side-min .nav-item span,body.side-min .side-foot span{display:none}
 body.side-min .side-collapse-btn{margin:0}
