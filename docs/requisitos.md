@@ -63,11 +63,11 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 | RF-02 | Calcular flujo diario | El sistema calcula por día: `TOTAL_ING - TOTAL_EGR = FLUJO_NETO`; `SALDO_INICIAL + FLUJO_NETO = FLUJO_ACUMULADO`; `SALDO_INICIAL(d+1) = FLUJO_ACUMULADO(d)` en USD | Alta | Verificable en 3 días aleatorios sin errores de redondeo | Propuesto |
 | RF-03 | Proyección por escenarios | Cambiar entre pesimista / base / optimista y horizonte 14/30/90 días para simular el futuro | Media | Cambiar escenario recalcula todo; si acumulado < 0 muestra alerta roja | Propuesto |
 | RF-04 | Gráfico + KPIs | Ver KPIs (saldo inicial, total ing, total egr, neto, acumulado) y gráfico de acumulado + neto diario que refleje la tabla | Media | Gráfico coincide con la tabla; negativos en rojo, positivos en verde | Propuesto |
-| RF-05 | Exportar / resetear | Exportar a CSV/XLSX, cambiar fecha de inicio y saldo inicial (USD), y resetear el mock | Baja | XLSX/CSV descarga correcto; reset restaura saldo $5,000 USD y datos iniciales | Propuesto |
+| RF-05 | Exportar / resetear | Exportar a CSV/XLSX, cambiar fecha de inicio y saldo inicial (USD), y resetear el mock | Baja | XLSX/CSV descarga correcto; reset restaura saldo $0 USD y datos iniciales | Propuesto |
 | RF-06 | — (reservado) | Copia esta fila para un RF nuevo. Una fila = una sola acción verificable | — | ... | Propuesto |
 | RF-07 | Navegación lateral (1 pantalla) | Una sola pantalla con sidebar que conmuta entre las 4 vistas sin recargar, con icono acorde por vista y estado activo visible | Alta | Clic en cada item cambia de vista sin reload y marca el item activo; en móvil colapsa a iconos/drawer | Propuesto |
 | RF-08 | Dashboard Principal | Responder ¿cuándo tendré dinero? y ¿cuánto tendré en esa fecha? con KPIs, gráfico de acumulado y alertas de déficit | Alta | Muestra saldo actual, próximo déficit y proyección; montos en USD | Propuesto |
-| RF-09 | Vista de Flujo | Matriz con 5 filas fijas (Saldo inicial, Total Ingresos desglosable en subfilas, Total Egresos desglosable en subfilas, Flujo neto diario, Flujo acumulado diario) y filtro de periodo: semana (7 días con nombre + fecha), trimestre (3 meses: se elige 1 mes y auto los 2 siguientes), anual (12 meses). Sin paginación, solo scroll-x | Alta | Totales coinciden con Movimientos; el desglose abre subfilas por movimiento; trimestre con 1 mes elegido muestra ese + 2 siguientes | Propuesto |
+| RF-09 | Vista de Flujo | Matriz con 5 filas fijas (Saldo inicial, Total Ingresos desglosable en subfilas, Total Egresos desglosable en subfilas, Flujo neto diario, Flujo acumulado diario) y filtro de periodo: diario (7 días con nombre + fecha), trimestre (3 meses: se elige 1 mes y auto los 2 siguientes), mensual (12 meses). Sin paginación, solo scroll-x | Alta | Totales coinciden con Movimientos; el desglose abre subfilas por movimiento; trimestre con 1 mes elegido muestra ese + 2 siguientes | Propuesto |
 | RF-10 | Movimientos (CRUD) | Botón único "+ Movimiento" (tipo se elige dentro del formulario de 9 campos). Filtros por solo ingresos / solo egresos + status + búsqueda. Editar solo permite mover fecha y observación (pasa a aplazado auto). Acción "Realizado" en fila para pendientes/aplazados con fecha de hoy | Alta | Crear con aplazado se rechaza; editar bloquea 7 campos; Realizado estampa hoy y recalcula | Propuesto |
 | RF-11 | Entidades (lectura) | Ver clientes, proveedores y bancos/cuentas (nombre, tipo, saldo) solo como lectura, para asociar a movimientos | Media | Lista las 3 categorías; sin botones crear/editar/eliminar; bancos muestran saldo USD | Propuesto |
 | RF-12 | Importar Excel (backend) | Backend Python lee el Excel fuente, valida y lo importa a la BD relacional con reporte de errores y sin duplicar | Alta | Reimportar el mismo archivo no duplica; filas inválidas se reportan y no rompen la carga | Propuesto |
@@ -101,7 +101,7 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 - RN-07: El Excel es solo fuente de carga. La verdad en runtime es la BD relacional.
 - RN-08: Todos los saldos y montos se manejan y muestran en USD.
 - RN-09: Catálogos cerrados (selects, sin texto libre): `tipo_pago` = efectivo, transferencia, cheque; `concepto_pago` = nomina, prestamo (extensible solo por migración); `status` = pendiente, aplazado, realizado. `centro_costo` = texto libre por ahora. Se aplican igual a ingresos y egresos hasta que el dueño indique omisiones por tipo.
-- RN-10: Vista de Flujo por periodo: semana = 7 columnas día (nombre + fecha); trimestre = se elige 1 mes y automáticamente son ese + los 2 siguientes; anual = 12 columnas mes. En mes/año los valores se suman por grupo y el acumulado arrastra el cierre anterior. Sin paginación.
+- RN-10: Vista de Flujo por periodo: diario = 7 columnas día (nombre + fecha); trimestre = se elige 1 mes y automáticamente son ese + los 2 siguientes; mensual = 12 columnas mes. En mes/año los valores se suman por grupo y el acumulado arrastra el cierre anterior. Sin paginación.
 - RN-11: Desglose de Total Ingresos / Total Egresos = subfilas dentro de la matriz (una por movimiento: entidad + banco + monto, sin mostrar el concepto). Cada subfila tiene botón ⋯ que abre el detalle completo del movimiento (9 campos) con salto a Movimientos.
 - RN-12: Ciclo de vida del movimiento: al crear status solo pendiente/realizado (nunca aplazado); al editar solo fecha_pago y observación son editables y el status pasa a aplazado automáticamente; la acción "Realizado" (solo si pendiente/aplazado) estampa la fecha actual y status realizado.
 - RN-13: Borrado total exige clave de administrador (`admin123`, o `FLOWTREASURY_ADMIN` en el servidor) enviada en el header `X-Admin-Clave` a `DELETE /api/datos`; sin clave válida responde 403 y no toca nada.
@@ -122,7 +122,7 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 
 | Dato | Ejemplo | Notas |
 |---|---|---|
-| Saldo inicial | $5,000 USD el 05/01/2026 (editable) | Parámetro global |
+| Saldo inicial | $0 USD el 05/01/2026 (editable) | Parámetro global |
 | Clientes | 8 clientes, 2-3 cobros/semana $2,500–$18,000 USD | Por ventas |
 | Proveedores | Lista solo lectura asociada a egresos | Solo lectura |
 | Bancos/cuentas | Pichincha, Guayaquil, Internacional, Caja chica | Saldo líquido = suma, USD |
@@ -136,7 +136,7 @@ El `.xlsx` nunca se lee por request. Flujo:
 1. **ETL una sola vez (Python `openpyxl`):** lee la hoja `Movimientos` de la plantilla → normaliza a `entidades`, `cuentas`, `movimientos` → guarda en SQLite portable (`tesoreria.db` junto al exe).
 2. **Índices SQL:** `CREATE INDEX idx_mov ON movimientos(fecha, tipo, entidad_id, cuenta_id)` para filtros instantáneos.
 3. **Saldos precalculados:** tabla `saldos_diarios(fecha, ing, egr, neto, acumulado)` recalculada solo al importar o al hacer CRUD en Movimientos. Dashboard y Vista de Flujo leen esta tabla (O(1) por día), no suman miles de filas cada vez.
-4. **API paginada:** `GET /api/flujo?modo=semana|trimestre|anual&...`, `GET /api/movimientos?tipo=&q=&page=&limit=50`, `GET /api/entidades?tipo=`. Filtros con `WHERE + LIMIT/OFFSET` y agregados con `SUM/GROUP BY` en SQL, no en JS. La matriz de Flujo no pagina: usa scroll-x.
+4. **API paginada:** `GET /api/flujo?modo=diario|trimestre|mensual&...`, `GET /api/movimientos?tipo=&q=&page=&limit=50`, `GET /api/entidades?tipo=`. Filtros con `WHERE + LIMIT/OFFSET` y agregados con `SUM/GROUP BY` en SQL, no en JS. La matriz de Flujo no pagina: usa scroll-x.
 5. **Caché:** `saldos_diarios` + caché en memoria (`dict`/`lru_cache`, Redis si crece), invalidada solo al importar o modificar un movimiento.
 6. **Escenarios:** se calculan sobre `saldos_diarios`, no sobre el Excel.
 

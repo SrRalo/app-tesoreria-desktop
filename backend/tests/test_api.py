@@ -147,5 +147,5 @@ def test_importar_multipart(base):
     assert status == 200 and res["filas_ok"] == 3
     _, est, _ = llamar(url, "GET", "/api/estado")
     assert est == {"db_lista": True, "movimientos": 3, "necesita_import": False}
-    _, flujo, _ = llamar(url, "GET", "/api/flujo?modo=semana&desde=2026-01-05")
+    _, flujo, _ = llamar(url, "GET", "/api/flujo?modo=diario&desde=2026-01-05")
     assert len(flujo["columnas"]) == 7 and flujo["columnas"][0]["ing"] == 8500

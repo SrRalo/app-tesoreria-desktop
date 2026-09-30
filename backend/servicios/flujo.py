@@ -46,6 +46,11 @@ def saldos(con: sqlite3.Connection) -> list[dict]:
 
 def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
     """Arma columnas + filas + detalle para la Vista de Flujo (RN-10/RN-11, sin paginar)."""
+    # Alias de compatibilidad: semana->diario, anual->mensual (solo etiquetas).
+    if modo == "semana":
+        modo = "diario"
+    elif modo == "anual":
+        modo = "mensual"
     saldo_ini = float(con.execute(
         "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0])
     saldos = {r["fecha"]: dict(r) for r in
@@ -60,13 +65,13 @@ def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
                     for ym in _sum_meses(y, m, 3)]
         def en_col(f: str, clave: str) -> bool:
             return f.startswith(clave)
-    elif modo == "anual":
+    elif modo == "mensual":
         anio = int(q.get("anio", [str(date.today().year)])[0])
         periodos = [("%04d-%02d" % (anio, m), "%s %d" % (MESES[m - 1], anio), "")
                     for m in range(1, 13)]
         def en_col(f: str, clave: str) -> bool:
             return f.startswith(clave)
-    else:  # semana: 7 días desde 'desde' (default: hoy)
+    else:  # diario: 7 días desde 'desde' (default: hoy)
         d0 = q.get("desde", [date.today().strftime("%Y-%m-%d")])[0]
         base = datetime.strptime(d0, "%Y-%m-%d").date()
         periodos = [((base + timedelta(days=i)).strftime("%Y-%m-%d"),

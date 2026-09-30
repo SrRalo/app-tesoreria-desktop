@@ -9,9 +9,9 @@ Endpoints:
   POST /api/init-vacio         -> {saldo_inicial_usd, fecha_inicio}
   POST /api/importar           -> multipart con campo 'archivo' (.xlsx)
   GET  /api/plantilla          -> descarga plantilla_flujo.xlsx (la genera si falta)
-  GET  /api/flujo?modo=semana&desde=YYYY-MM-DD   -> 7 columnas día (nombre + fecha)
+  GET  /api/flujo?modo=diario&desde=YYYY-MM-DD   -> 7 columnas día (nombre + fecha)
   GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
-  GET  /api/flujo?modo=anual&anio=YYYY           -> 12 columnas mes
+  GET  /api/flujo?modo=mensual&anio=YYYY         -> 12 columnas mes
   (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
   GET  /api/saldos               -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard)
   GET  /api/movimientos?tipo=&status=&q=&page=&limit= -> lista paginada
@@ -102,9 +102,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.wfile.write(body)
         if u.path == "/api/flujo":
             q = parse_qs(u.query)
-            modo = q.get("modo", ["semana"])[0]
-            if modo not in ("semana", "trimestre", "anual"):
-                return self._json({"error": "modo debe ser semana|trimestre|anual"}, 400)
+            modo = q.get("modo", ["diario"])[0]
+            if modo not in ("diario", "trimestre", "mensual", "semana", "anual"):
+                return self._json({"error": "modo debe ser diario|trimestre|mensual"}, 400)
             con = conectar(self.db)
             try:
                 res = flujo_por_modo(con, modo, q)
@@ -168,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             d = self._leer_json()
             con = conectar(self.db)
             try:
-                res = init_vacio(con, d.get("saldo_inicial_usd", 5000),
+                res = init_vacio(con, d.get("saldo_inicial_usd", 0),
                                  d.get("fecha_inicio", ""))
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)

@@ -35,7 +35,7 @@ class TestBorrado:
         assert despues["entidades"] == 0
         assert despues["conceptos"] == 2 and despues["cuentas"] == 4  # seeds RN-09
         assert float(con.execute(
-            "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]) == 5000
+            "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]) == 0
 
     def test_despues_vuelve_a_primer_arranque(self, con_seed):
         con, _ = con_seed

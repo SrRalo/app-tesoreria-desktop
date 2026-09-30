@@ -77,4 +77,4 @@ INSERT OR IGNORE INTO cuentas (banco, numero, saldo_inicial_usd) VALUES
   ('Internacional','',0), ('Caja','chica',0);
 
 INSERT OR IGNORE INTO config (clave, valor) VALUES
-  ('saldo_inicial_usd','5000'), ('fecha_inicio','2026-01-05');
+  ('saldo_inicial_usd','0'), ('fecha_inicio','2026-01-05');

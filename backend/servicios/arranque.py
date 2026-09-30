@@ -26,7 +26,7 @@ def estado(con: sqlite3.Connection) -> dict:
     return {"db_lista": True, "movimientos": n, "necesita_import": n == 0 and logs == 0}
 
 
-def init_vacio(con: sqlite3.Connection, saldo_inicial_usd=5000,
+def init_vacio(con: sqlite3.Connection, saldo_inicial_usd=0,
                fecha_inicio: str = "") -> dict:
     try:
         saldo = float(saldo_inicial_usd)

@@ -26,7 +26,7 @@ const MockApi = (() => {
   const TIPOS_PAGO = ['transferencia', 'transferencia', 'transferencia', 'efectivo', 'cheque'];
   const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  const SALDO_INICIAL_DEFAULT = 5000;
+  const SALDO_INICIAL_DEFAULT = 0;
   let SALDO_INI = SALDO_INICIAL_DEFAULT;
   const INICIO = '2026-01-05';
   const NDIAS = 150;
@@ -173,7 +173,7 @@ const MockApi = (() => {
         saldo_inicial_usd: SALDO_INI };
     },
     // Iniciar vacío RF-14 (igual que POST /api/init-vacio): limpia y fija saldo+fecha.
-    initVacio: async ({ saldo_inicial_usd = 5000, fecha_inicio = '2026-01-05' } = {}) => {
+    initVacio: async ({ saldo_inicial_usd = 0, fecha_inicio = '2026-01-05' } = {}) => {
       movs.length = 0;
       SALDO_INI = +saldo_inicial_usd || 0;
       saldos = computeSaldos();
@@ -181,10 +181,11 @@ const MockApi = (() => {
     },
     flujo: async (modo, p = {}) => {
       let cols, esMes = false;
-      if (modo === 'trimestre') { cols = columnasMeses(p.mes || '2026-01', 3); esMes = true; }
-      else if (modo === 'anual') { cols = columnasMeses((p.anio || '2026') + '-01', 12); esMes = true; }
+      const m = modo === 'semana' ? 'diario' : modo === 'anual' ? 'mensual' : modo;
+      if (m === 'trimestre') { cols = columnasMeses(p.mes || '2026-01', 3); esMes = true; }
+      else if (m === 'mensual') { cols = columnasMeses((p.anio || '2026') + '-01', 12); esMes = true; }
       else cols = columnasSemana(p.desde);
-      return { modo, ...armarFlujo(cols, esMes) };
+      return { modo: m, ...armarFlujo(cols, esMes) };
     },
     saldos: async () => saldos,
     movimientos: async ({ tipo = '', status = '', q = '', page = 1, limit = 50 } = {}) => {

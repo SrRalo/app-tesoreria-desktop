@@ -44,7 +44,7 @@ function askConfirm(title, msg, yesLabel) {
   });
 }
 const state = { escenario: 'base', horizonte: 30 };
-const flujoState = { modo: 'semana', desde: '2026-01-19', mes: '2026-01', anio: '2026',
+const flujoState = { modo: 'diario', desde: '2026-01-19', mes: '2026-01', anio: '2026',
   expIng: false, expEgr: false, weeks: null, weekCache: {}, semLoading: false, semDone: false, dataEnd: null };
 
 function addDaysISO(iso, days) {
@@ -53,7 +53,7 @@ function addDaysISO(iso, days) {
 }
 async function fetchWeek(desde) {
   if (!flujoState.weekCache[desde])
-    flujoState.weekCache[desde] = await Api.flujo('semana', { desde });
+    flujoState.weekCache[desde] = await Api.flujo('diario', { desde });
   return flujoState.weekCache[desde];
 }
 
@@ -263,8 +263,8 @@ async function renderFlujo() {
   const wrap = $('#matrixWrap');
   const sl = wrap.scrollLeft; // anexar a la derecha no debe saltar el scroll
   let data;
-  if (modo === 'semana') {
-    // Scroll infinito: la fecha elegida es el punto de partida, se anexan semanas.
+  if (modo === 'diario') {
+    // Scroll infinito: la fecha elegida es el punto de partida, se anexan días de 7 en 7.
     if (!flujoState.weeks) {
       flujoState.weeks = [desde];
       flujoState.semDone = false;
@@ -321,24 +321,24 @@ async function renderFlujo() {
   flujoState.lastCols = cols;
   clearSel();
 
-  const rango = modo === 'semana'
+  const rango = modo === 'diario'
     ? 'Desde el ' + fmtFecha(cols[0].clave) + ' · scroll infinito hacia la derecha'
     : modo === 'trimestre'
       ? 'Trimestre ' + cols.map((c) => c.clave).join(' · ')
-      : 'Anual ' + anio + ' (12 meses)';
+      : 'Mensual ' + anio + ' (12 meses)';
   $('#flujoRange').textContent = rango + ' · montos en USD · clic en ▸ para desglosar';
-  $('#matrixFoot').textContent = modo === 'semana'
+  $('#matrixFoot').textContent = modo === 'diario'
     ? cols.length + ' días cargados · ' + (flujoState.semDone ? 'fin de los datos' : 'sigue a la derecha para más')
     : cols.length + ' columnas · ' + (nIng + nEgr) + ' movimientos · scroll horizontal, sin paginación';
   wrap.scrollLeft = sl;
   // Si todo cabe en pantalla no hay scroll: anexar hasta desbordar o agotar datos.
-  if (modo === 'semana' && !flujoState.semDone)
+  if (modo === 'diario' && !flujoState.semDone)
     requestAnimationFrame(() => {
       if (wrap.scrollWidth <= wrap.clientWidth + 10) loadNextWeek();
     });
 }
 
-/* Anexa la siguiente semana al acercarse al borde derecho (solo modo semana) */
+/* Anexa los siguientes 7 días al acercarse al borde derecho (solo modo diario) */
 async function loadNextWeek() {
   if (flujoState.semLoading || flujoState.semDone || flujoState.weeks.length >= 60) return;
   flujoState.semLoading = true;
@@ -615,28 +615,72 @@ async function renderEntidades() {
   if (entTab === 'banco') {
     const cuentas = await Api.cuentas();
     const { rows } = await Api.movimientos({ page: 1, limit: 500 });
-    const vol = {};
+    const info = {};
     for (const m of rows) {
-      if (m.status !== 'realizado') continue;
-      vol[m.banco] = vol[m.banco] || { ing: 0, egr: 0, n: 0 };
-      vol[m.banco][m.tipo === 'ingreso' ? 'ing' : 'egr'] += m.valor_usd;
-      vol[m.banco].n++;
+      const b = info[m.banco] || (info[m.banco] = { ing: 0, egr: 0, n: 0, ultimo: '', ultimos: [], pend: 0 });
+      if (m.status === 'realizado') {
+        b[m.tipo === 'ingreso' ? 'ing' : 'egr'] += m.valor_usd;
+        b.n++;
+        if (!b.ultimo || m.fecha_pago > b.ultimo) b.ultimo = m.fecha_pago;
+        b.ultimos.push(m);
+      } else {
+        b.pend++;
+      }
     }
-    const max = Math.max(1, ...Object.values(vol).map((v) => v.ing + v.egr));
-    body.innerHTML = '<div style="overflow-x:auto"><table class="tbl"><thead><tr>' +
-      '<th>Banco</th><th>Movimientos</th><th class="amount">Ingresado</th>' +
-      '<th class="amount">Pagado</th><th>Volumen</th><th></th></tr></thead><tbody>' +
+    Object.values(info).forEach((b) => {
+      b.ultimos.sort((a, c) => a.fecha_pago < c.fecha_pago ? 1 : -1);
+      b.ultimos = b.ultimos.slice(0, 5);
+    });
+    const saldoIni = (c) => +((c.saldo_inicial_usd ?? c.saldo_usd) || 0);
+    const saldoCta = (c) => {
+      const v = info[c.banco] || { ing: 0, egr: 0 };
+      return saldoIni(c) + v.ing - v.egr;
+    };
+    const totalSaldo = cuentas.reduce((s, c) => s + saldoCta(c), 0);
+    const max = Math.max(1, ...cuentas.map((c) => {
+      const v = info[c.banco] || { ing: 0, egr: 0 };
+      return v.ing + v.egr;
+    }));
+    const cards = '<div class="bank-cards"><div class="kpi hero"><div class="kpi-top">' +
+      '<span class="kpi-label">Saldo total en bancos</span></div>' +
+      '<div class="kpi-val">' + fmtUSD.format(totalSaldo) + '</div>' +
+      '<div class="kpi-sub">' + cuentas.length + ' cuentas · solo realizado + saldo inicial</div></div>' +
+      '<div class="kpi"><div class="kpi-top"><span class="kpi-label">Cuentas</span></div>' +
+      '<div class="kpi-val">' + cuentas.length + '</div>' +
+      '<div class="kpi-sub">Próximamente: estados de cuenta importados</div></div></div>';
+    body.innerHTML = cards + '<div style="overflow-x:auto"><table class="tbl"><thead><tr>' +
+      '<th>Banco</th><th class="amount">Saldo inicial</th><th>Movimientos</th><th class="amount">Ingresado</th>' +
+      '<th class="amount">Pagado</th><th class="amount">Saldo</th><th>Volumen</th><th></th></tr></thead><tbody>' +
       cuentas.map((c) => {
-        const v = vol[c.banco] || { ing: 0, egr: 0, n: 0 };
+        const v = info[c.banco] || { ing: 0, egr: 0, n: 0, ultimo: '', ultimos: [], pend: 0 };
         const pct = Math.round(((v.ing + v.egr) / max) * 100);
+        const saldo = saldoCta(c);
+        const ultimos = v.ultimos.map((m) =>
+          '<tr><td class="num">' + fmtFecha(m.fecha_pago) + '</td><td>' + esc(m.entidad || '(sin entidad)') +
+          '<small> · ' + esc(m.concepto_pago || '') + '</small></td>' +
+          '<td class="amount ' + (m.tipo === 'ingreso' ? 'pos' : 'neg') + '">' +
+          (m.tipo === 'ingreso' ? '+' : '−') + fmtUSD.format(m.valor_usd) + '</td></tr>').join('');
         return '<tr><td><div class="ent"><span class="ent-ico" style="background:#f0f5fa;color:#477291">' +
           ICO_BANK + '</span><span>' + esc(c.banco) +
           '<small>' + esc(c.numero || 'Sin número') + '</small></span></div></td>' +
+          '<td class="amount">' + fmtUSD.format(saldoIni(c)) + '</td>' +
           '<td class="num">' + v.n + '</td>' +
           '<td class="amount pos">+' + fmtUSD.format(v.ing) + '</td>' +
           '<td class="amount neg">−' + fmtUSD.format(v.egr) + '</td>' +
+          '<td class="amount' + (saldo < 0 ? ' neg' : '') + '">' + fmtUSD.format(saldo) + '</td>' +
           '<td><div class="vol" role="img" aria-label="Volumen ' + pct + '%"><i style="width:' + pct + '%"></i></div></td>' +
-          '<td><div class="row-actions"><button class="icon-btn" data-q="' + esc(c.banco) + '">Ver movimientos</button></div></td></tr>';
+          '<td><div class="row-actions"><button class="icon-btn" data-q="' + esc(c.banco) + '">Ver movimientos</button></div></td></tr>' +
+          '<tr class="stmt-row"><td colspan="8"><details class="stmt" data-estado="placeholder">' +
+          '<summary>Ver saldo y estado resumido' + (v.ultimo ? ' · último ' + fmtFecha(v.ultimo) : '') +
+          (v.pend ? ' · ' + v.pend + ' pendiente(s)' : '') + '</summary>' +
+          '<div class="stmt-body">' +
+          (v.n
+            ? '<div style="overflow-x:auto"><table class="tbl"><tbody>' + ultimos + '</tbody></table></div>' +
+              (v.pend ? '<p class="desc">' + v.pend + ' movimiento(s) pendiente(s)/aplazado(s) no suman al saldo.</p>' : '')
+            : '<p class="desc">Sin estados de cuenta cargados para ' + esc(c.banco) +
+              ' — aquí aparecerá el resumen cuando importes tus estados de cuenta.</p>' +
+              '<!-- TODO: futura carga de estados de cuenta (CSV/Excel) por banco -->') +
+          '</div></details></td></tr>';
       }).join('') + '</tbody></table></div>';
     return;
   }
@@ -804,12 +848,21 @@ function init() {
   checkBienvenida();
   $('#menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
   $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
-  $('#sideMinBtn').addEventListener('click', () => document.body.classList.toggle('side-min'));
+  const ICO_COLLAPSE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>';
+  const ICO_EXPAND = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>';
+  $('#sideMinBtn').addEventListener('click', () => {
+    const min = document.body.classList.toggle('side-min');
+    const b = $('#sideMinBtn');
+    b.innerHTML = min ? ICO_EXPAND : ICO_COLLAPSE;
+    b.setAttribute('aria-label', min ? 'Expandir barra lateral' : 'Colapsar barra lateral');
+    b.setAttribute('title', min ? 'Expandir barra lateral' : 'Colapsar barra lateral');
+    b.setAttribute('aria-expanded', String(!min));
+  });
   // Filtros Vista de Flujo
   const syncFlujoInputs = () => {
-    $('#wDesde').hidden = flujoState.modo !== 'semana';
+    $('#wDesde').hidden = flujoState.modo !== 'diario';
     $('#wMes').hidden = flujoState.modo !== 'trimestre';
-    $('#wAnio').hidden = flujoState.modo !== 'anual';
+    $('#wAnio').hidden = flujoState.modo !== 'mensual';
   };
   $('#fModo').addEventListener('change', (e) => {
     flujoState.modo = e.target.value; syncFlujoInputs(); renderFlujo();
@@ -847,9 +900,9 @@ function init() {
       paintSel(bodyRows.indexOf(tr), [...tr.cells].indexOf(td) - 1);
     }
   });
-  // Scroll infinito semanal: anexar al acercarse al borde derecho
+  // Scroll infinito diario: anexar al acercarse al borde derecho
   $('#matrixWrap').addEventListener('scroll', (e) => {
-    if (!$('#view-flujo').classList.contains('active') || flujoState.modo !== 'semana') return;
+    if (!$('#view-flujo').classList.contains('active') || flujoState.modo !== 'diario') return;
     const w = e.target;
     if (w.scrollLeft + w.clientWidth > w.scrollWidth - 500) loadNextWeek();
   });
