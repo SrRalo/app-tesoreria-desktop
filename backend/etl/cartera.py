@@ -23,44 +23,24 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
+from etl.normalizar import limpiar_texto as _norm, parse_fecha, parse_monto
+
 BANCO_DEFAULT = "PorDefinir"
 TIPO_PAGO_DEFAULT = "transferencia"
 CONCEPTO_CXC = "cobranza_clientes"
 CONCEPTO_CXP = "pago_proveedores"
 
 
-def _norm(s) -> str:
-    # latin1 mal exportado (Antig�edad, ESTUPI�AN) -> UTF-8 legible
-    if s is None:
-        return ""
-    t = str(s)
-    if "�" in t:
-        try:
-            t = t.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
-            if not t.strip():
-                t = str(s)
-        except Exception:
-            t = str(s)
-    return re.sub(r"\s+", " ", t).strip()
-
-
 def _fecha_iso(v) -> str:
-    if isinstance(v, (datetime, date)):
-        return v.strftime("%Y-%m-%d")
-    s = _norm(v)
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(s[:10], fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    raise ValueError(f"fecha inválida: {v!r}")
+    iso, _ = parse_fecha(v)
+    if not iso or iso == "1900-01-01":
+        raise ValueError(f"fecha inválida: {v!r}")
+    return iso
 
 
 def _num(v) -> float:
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = _norm(v).replace(",", "").replace("$", "")
-    return float(s) if s not in ("", "-", "—") else 0.0
+    n, _ = parse_monto(v)
+    return n
 
 
 def _es_totales(nombre, numero) -> bool:
@@ -70,53 +50,87 @@ def _es_totales(nombre, numero) -> bool:
 
 def leer_cartera(path: Path, tipo: str, corte: str,
                  status_vencido: str = "vencido") -> tuple[list[dict], list[str]]:
-    """Lee un libro CXP/CXC y devuelve filas plantilla + errores."""
-    from openpyxl import load_workbook
+    """Lee un libro CXP/CXC (.xlsx o .xls BIFF real) y devuelve filas + errores."""
     raw = Path(path).read_bytes()
-    try:
-        wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
-    except Exception as e:
-        return [], [f"{path.name}: no se pudo abrir ({e}). Renombre a .xlsx si es .xls."]
-    ws = wb["Sheet" if "Sheet" in wb.sheetnames else wb.sheetnames[0]]
+    suf = Path(path).suffix.lower()
+    nombre = Path(path).name
     filas, errores = [], []
     concepto = CONCEPTO_CXC if tipo == "ingreso" else CONCEPTO_CXP
-    for i, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
-        vals = list(row) + [None] * (17 - len(list(row)))
-        nombre = _norm(vals[0])
-        if not nombre or _es_totales(vals[0], vals[4]):
-            continue  # título/total o fila vacía
-        try:
-            fecha_vence = _fecha_iso(vals[7])
-            saldo = _num(vals[9])
-            if saldo == 0:
-                continue
-            vencido = _num(vals[10])
-            por_vencer = _num(vals[11])
-            buckets = {"30": _num(vals[12]), "60": _num(vals[13]),
-                       "90": _num(vals[14]), "120": _num(vals[15])}
-            bucket = next((k for k, v in buckets.items() if abs(v) > 0.005), "")
-            # signo invertido: anticipo cliente (CXC negativo) o pago a favor (CXP positivo)
-            ajuste = ""
-            if (tipo == "ingreso" and saldo < 0) or (tipo == "egreso" and saldo > 0):
-                ajuste = " AJUSTE-SIGNO"
-            obs = (f"[{'CXC' if tipo == 'ingreso' else 'CXP'}]"
-                   f" Num:{_norm(vals[4]) or '—'} Asi:{_norm(vals[5]) or '—'}"
-                   f" Emi:{_norm(vals[6]) or '—'}"
-                   f" Proy:{_norm(vals[2]) or '—'}"
-                   + (f" Bucket:{bucket}d" if bucket else "") + ajuste)
-            status = "pendiente"
-            if fecha_vence <= corte:
-                status = status_vencido if status_vencido in ("vencido", "realizado", "pendiente") else "vencido"
-            filas.append({
-                "banco": BANCO_DEFAULT, "fecha_pago": fecha_vence, "tipo": tipo,
-                "tipo_pago": TIPO_PAGO_DEFAULT, "entidad": nombre,
-                "concepto_pago": concepto, "centro_costo": _norm(vals[1]),
-                "valor_usd": round(abs(saldo), 2), "status": status,
-                "observacion": obs[:500],
-                "_vencido": vencido, "_por_vencer": por_vencer,
-            })
-        except Exception as e:
-            errores.append(f"{path.name} fila {i} ({nombre}): {e}")
+
+    def _procesa(matriz: list[list], hoja: str):
+        nonlocal filas, errores
+        # salta títulos: primera fila con "nombre"-like en col 0 dentro de las 5 primeras
+        inicio = 0
+        for i, r in enumerate(matriz[:5]):
+            t = _norm((r[0] if r else "")).lower()
+            if t in ("nombre", "cliente", "proveedor", "nombre cliente"):
+                inicio = i + 1
+                break
+        else:
+            inicio = 2  # formato clásico: 2 filas de título
+        for i, row in enumerate(matriz[inicio:], start=inicio + 1):
+            vals = list(row) + [None] * (17 - len(list(row)))
+            nombre = _norm(vals[0])
+            if not nombre or _es_totales(vals[0], vals[4]):
+                continue  # título/total o fila vacía
+            try:
+                fecha_vence = _fecha_iso(vals[7])
+                saldo = _num(vals[9])
+                if saldo == 0:
+                    continue
+                vencido = _num(vals[10])
+                por_vencer = _num(vals[11])
+                buckets = {"30": _num(vals[12]), "60": _num(vals[13]),
+                           "90": _num(vals[14]), "120": _num(vals[15])}
+                bucket = next((k for k, v in buckets.items() if abs(v) > 0.005), "")
+                # signo invertido: anticipo cliente (CXC negativo) o pago a favor (CXP positivo)
+                ajuste = ""
+                if (tipo == "ingreso" and saldo < 0) or (tipo == "egreso" and saldo > 0):
+                    ajuste = " AJUSTE-SIGNO"
+                obs = (f"[{'CXC' if tipo == 'ingreso' else 'CXP'}]"
+                       f" Num:{_norm(vals[4]) or '—'} Asi:{_norm(vals[5]) or '—'}"
+                       f" Emi:{_norm(vals[6]) or '—'}"
+                       f" Proy:{_norm(vals[2]) or '—'}"
+                       + (f" Bucket:{bucket}d" if bucket else "") + ajuste)
+                status = "pendiente"
+                if fecha_vence <= corte:
+                    status = status_vencido if status_vencido in ("vencido", "realizado", "pendiente") else "vencido"
+                filas.append({
+                    "banco": BANCO_DEFAULT, "fecha_pago": fecha_vence, "tipo": tipo,
+                    "tipo_pago": TIPO_PAGO_DEFAULT, "entidad": nombre,
+                    "concepto_pago": concepto, "centro_costo": _norm(vals[1]),
+                    "valor_usd": round(abs(saldo), 2), "status": status,
+                    "observacion": obs[:500],
+                    "_vencido": vencido, "_por_vencer": por_vencer,
+                })
+            except Exception as e:
+                errores.append(f"{nombre} fila {i} ({nombre}): {e}")
+
+    # .xls BIFF real (xlrd) o .xlsx renombrado (openpyxl); xls próximos del banco
+    try:
+        if suf == ".xls":
+            try:
+                import xlrd
+                bk = xlrd.open_workbook(file_contents=raw, on_demand=True)
+                try:
+                    sh = bk.sheet_by_name("Sheet" if "Sheet" in bk.sheet_names() else bk.sheet_names()[0])
+                    matriz = [[sh.cell(r, c).value for c in range(sh.ncols)]
+                              for r in range(sh.nrows)]
+                finally:
+                    bk.release_resources()
+                _procesa(matriz, "Sheet")
+            except ImportError:
+                errores.append(f"{nombre}: falta xlrd para .xls real (pip install xlrd)")
+        else:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            try:
+                ws = wb["Sheet" if "Sheet" in wb.sheetnames else wb.sheetnames[0]]
+                _procesa([list(r) for r in ws.iter_rows(values_only=True)], ws.title)
+            finally:
+                wb.close()
+    except Exception as e:
+        return [], [f"{nombre}: no se pudo abrir ({e})"]
     return filas, errores
 
 

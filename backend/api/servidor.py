@@ -7,7 +7,12 @@ Endpoints:
   GET  /                       -> frontend/index.html
   GET  /api/estado             -> {db_lista, movimientos, necesita_import}
   POST /api/init-vacio         -> {saldo_inicial_usd, fecha_inicio}
-  POST /api/importar           -> multipart con campo 'archivo' (.xlsx)
+  POST /api/importar           -> multipart con campo 'archivo' (.xlsx/.xls/.csv) + 'hoja' opcional
+POST /api/importar/preview   -> dry-run: mismas entradas + 'limite'; no guarda, clasifica filas
+POST /api/importar/validar    -> verifica que cada archivo esté en su campo
+  (multipart pichincha|internacional|produbanco|cxc); sin ETL si algo falla
+POST /api/importar/lote       -> revalida + ejecuta los ETL con todo-o-nada
+  (multipart + 'hoja_cxc' opcional); vista previa -> confirmación -> transacción
   GET  /api/plantilla          -> descarga plantilla_flujo.xlsx (la genera si falta)
    GET  /api/flujo?modo=diario&desde=YYYY-MM-DD    -> 7 columnas día (nombre + fecha)
    GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
@@ -25,14 +30,16 @@ Endpoints:
    DELETE /api/datos             -> borrado total con clave admin (header X-Admin-Clave, RN-13)
    GET  /api/entidades?tipo=    -> clientes/proveedores (lectura)
    GET  /api/cuentas            -> bancos/cuentas (lectura)
+   GET  /api/bancos             -> bancos con logo + saldo del último corte (RF-25)
+   GET  /api/bancos/<id>/meses -> meses con extracto (RF-26)
+   GET  /api/bancos/<id>/extracto?mes=&pagina=&limite= -> líneas paginadas (RF-26)
    GET  /api/bitacora?accion=&tabla=&desde=&hasta=&q=&page=&limit= -> auditoría paginada
    GET  /api/bitacora/export?accion=&tabla=&desde=&hasta=&q= -> reporte .txt (respeta filtros)
    GET  /api/recursos           -> último Excel cargado (nombre+fecha+filas) + conteo
-   POST /api/extractos/importar  -> multipart con 'archivo' + 'banco'
-     (pichincha|internacional|produbanco): importa el estado de cuenta,
-     fija la apertura 31-jul, concilia automático por fecha y recalcula
-   GET  /api/cuadre?mes=2026-08   -> calculado vs corte por cuenta + total
-   GET  /api/conciliacion/pendientes -> líneas de extracto sin amarre
+    POST /api/extractos/importar  -> multipart con 'archivo' + 'banco'
+      (pichincha|internacional|produbanco): importa el estado de cuenta
+      a extracto_lineas + cortes_bancarios (sin generar movimientos;
+      solo visible en Entidades > Bancos).
 
 Uso dev:
   python run.py --db ..\\database\\tesoreria.db --port 8000
@@ -44,6 +51,7 @@ import argparse
 import cgi
 import json
 import mimetypes
+import sqlite3
 import tempfile
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,11 +63,31 @@ from nucleo.rutas import db_default, front_file
 from servicios import movimientos as srv_mov
 from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada, recursos
 from servicios import bitacora as srv_bit
-from servicios import conciliacion as srv_conc
-from servicios import cuadre as srv_cuadre
+from servicios import bancos as srv_bancos
 from servicios.configuracion import borrar_todo
 from servicios.entidades import listar_cuentas, listar_entidades
 from servicios.flujo import anios, flujo_por_modo, saldos
+
+# Campos del formulario de carga (RF-23): un archivo por tipo de fuente.
+CAMPOS_CARGA = ("pichincha", "internacional", "produbanco", "cxc")
+
+_MIME_EXTRA = {".webp": "image/webp", ".svg": "image/svg+xml",
+               ".png": "image/png"}
+
+
+def _leer_tentativa(form) -> dict[str, tuple[bytes, str]]:
+    """Extrae {campo: (bytes, nombre)} de un multipart. Vacíos se ignoran."""
+    out: dict[str, tuple[bytes, str]] = {}
+    for campo in CAMPOS_CARGA:
+        if campo not in form:
+            continue
+        item = form[campo]
+        if not getattr(item, "filename", None):
+            continue
+        raw = item.file.read()
+        if raw:
+            out[campo] = (raw, item.filename)
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -150,6 +178,16 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
             return self._json(res)
+        if u.path.startswith("/api/movimientos/"):
+            mid = u.path.rsplit("/", 1)[-1]
+            con = conectar(self.db)
+            try:
+                res = srv_mov._fila_dict(con, mid)
+                if not res:
+                    return self._json({"error": "no encontrado"}, 404)
+            finally:
+                con.close()
+            return self._json(res)
         if u.path == "/api/entidades":
             q = parse_qs(u.query)
             con = conectar(self.db)
@@ -165,6 +203,38 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
             return self._json(res)
+        if u.path == "/api/bancos":
+            # RF-25: bancos con logo + saldo del último corte.
+            con = conectar(self.db)
+            try:
+                res = srv_bancos.listar_bancos(con)
+            finally:
+                con.close()
+            return self._json({"total": len(res), "rows": res})
+        if u.path.startswith("/api/bancos/"):
+            # RF-26: /api/bancos/{id}/meses y /api/bancos/{id}/extracto.
+            partes = u.path.strip("/").split("/")
+            con = conectar(self.db)
+            try:
+                if len(partes) == 4 and partes[3] == "meses":
+                    res = srv_bancos.meses_con_extracto(con, int(partes[2]))
+                    return self._json({"total": len(res), "rows": res})
+                if len(partes) == 4 and partes[3] == "extracto":
+                    q = parse_qs(u.query)
+                    try:
+                        res = srv_bancos.extracto_paginado(
+                            con, int(partes[2]),
+                            mes=q.get("mes", [""])[0],
+                            pagina=q.get("pagina", ["1"])[0],
+                            limite=q.get("limite", ["50"])[0])
+                    except ValueError as e:
+                        return self._json({"error": f"parámetros inválidos: {e}"}, 400)
+                    return self._json(res)
+            except (ValueError, LookupError) as e:
+                return self._json({"error": str(e)}, 404)
+            finally:
+                con.close()
+            return self._json({"error": "no encontrado"}, 404)
         if u.path == "/api/saldos":
             q = parse_qs(u.query)
             con = conectar(self.db)
@@ -242,28 +312,9 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
             return self._json(res)
-        if u.path == "/api/cuadre":
-            q = parse_qs(u.query)
-            con = conectar(self.db)
-            try:
-                res = srv_cuadre.cuadre_mes(con, q.get("mes", ["2026-08"])[0])
-            finally:
-                con.close()
-            return self._json(res)
-        if u.path == "/api/conciliacion/pendientes":
-            q = parse_qs(u.query)
-            con = conectar(self.db)
-            try:
-                cid = q.get("cuenta_id", [""])[0] or None
-                res = srv_conc.pendientes(
-                    con, int(cid) if cid else None,
-                    int(q.get("limit", ["200"])[0]))
-            except ValueError as e:
-                return self._json({"error": f"parámetros inválidos: {e}"}, 400)
-            finally:
-                con.close()
-            return self._json({"total": len(res), "rows": res})
-        # estático genérico (styles.css, app.js, data.js)
+        # Conciliación eliminada: los extractos solo se consultan en
+        # /api/bancos, /api/bancos/<id>/meses y /api/bancos/<id>/extracto.
+        # estático genérico (styles.css, app.js, data.js, assets/bancos/*)
         rel = (u.path or "/").lstrip("/")
         if ".." not in rel and "/" not in rel:
             f = front_file(rel)
@@ -272,6 +323,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type",
                                  mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+        if rel.startswith("assets/") and ".." not in rel:
+            # Logos de bancos (RF-25): frontend/assets/bancos/<banco>.png|.webp
+            f = front_file(rel)
+            if f:
+                body = f.read_bytes()
+                ctype = (mimetypes.guess_type(f.name)[0]
+                         or _MIME_EXTRA.get(f.suffix.lower())
+                         or "application/octet-stream")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return self.wfile.write(body)
@@ -299,14 +363,156 @@ class Handler(BaseHTTPRequestHandler):
             if "archivo" not in form or not form["archivo"].filename:
                 return self._json({"error": "campo 'archivo' vacío"}, 400)
             nombre_orig = form["archivo"].filename
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            hoja = (form.getvalue("hoja", "") or "").strip() or None
+            suf = Path(nombre_orig).suffix.lower() or ".xlsx"
+            if suf not in (".xlsx", ".xls", ".csv"):
+                return self._json({"error": f"formato {suf} no soportado (use .xlsx, .xls o .csv)"}, 400)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suf) as tmp:
                 tmp.write(form["archivo"].file.read())
                 tmppath = Path(tmp.name)
             try:
-                res = importar_archivo(tmppath, self.db, nombre_original=nombre_orig)
+                res = importar_archivo(tmppath, self.db, nombre_original=nombre_orig,
+                                       hoja=hoja)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
             finally:
                 tmppath.unlink(missing_ok=True)
             return self._json(res)
+        if u.path == "/api/importar/preview":
+            # Dry-run RF-ETL-11: multipart con 'archivo' (+ 'hoja', 'limite').
+            # No guarda nada: devuelve validas/advertencias/duplicadas/erróneas.
+            ctype = self.headers.get("Content-Type", "")
+            if "multipart" not in ctype:
+                return self._json({"error": "envíe multipart con campo 'archivo'"}, 400)
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
+                                    environ={"REQUEST_METHOD": "POST"})
+            if "archivo" not in form or not form["archivo"].filename:
+                return self._json({"error": "campo 'archivo' vacío"}, 400)
+            nombre_orig = form["archivo"].filename
+            hoja = (form.getvalue("hoja", "") or "").strip() or None
+            try:
+                limite = int(form.getvalue("limite", "") or 200)
+            except ValueError:
+                limite = 200
+            suf = Path(nombre_orig).suffix.lower() or ".xlsx"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suf) as tmp:
+                tmp.write(form["archivo"].file.read())
+                tmppath = Path(tmp.name)
+            try:
+                from servicios.arranque import previsualizar_archivo
+                res = previsualizar_archivo(tmppath, self.db, hoja=hoja,
+                                            limite=min(max(limite, 1), 1000))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            finally:
+                tmppath.unlink(missing_ok=True)
+            return self._json(res)
+        if u.path == "/api/importar/validar":
+            # RF-23: verificación previa obligatoria. Recibe los archivos con
+            # el nombre de su campo y devuelve un veredicto por campo.
+            # Si algún campo falla, el front NO ejecuta ningún ETL.
+            ctype = self.headers.get("Content-Type", "")
+            if "multipart" not in ctype:
+                return self._json({"error": "envíe multipart con los campos de carga"}, 400)
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
+                                    environ={"REQUEST_METHOD": "POST"})
+            archivos = _leer_tentativa(form)
+            if not archivos:
+                return self._json({"error": "suba al menos un archivo"}, 400)
+            from etl.validar import validar_tentativa
+            res = validar_tentativa(archivos)
+            return self._json(res, 200 if res["ok"] else 422)
+        if u.path == "/api/importar/lote":
+            # RF-23 + RF-ETL-13: revalida todo y, si pasa, ejecuta los ETL
+            # de la tentativa con todo-o-nada (respaldo previo de la BD;
+            # ante cualquier fallo se restaura y no se guarda nada).
+            ctype = self.headers.get("Content-Type", "")
+            if "multipart" not in ctype:
+                return self._json({"error": "envíe multipart con los campos de carga"}, 400)
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
+                                    environ={"REQUEST_METHOD": "POST"})
+            archivos = _leer_tentativa(form)
+            if not archivos:
+                return self._json({"error": "suba al menos un archivo"}, 400)
+            from etl.validar import validar_tentativa
+            veredictos = validar_tentativa(archivos)
+            if not veredictos["ok"]:
+                return self._json({**veredictos,
+                                   "error": "validación fallida: no se ejecutó ningún ETL"},
+                                  422)
+            hoja_cxc = (form.getvalue("hoja_cxc", "") or "").strip() or None
+            respaldo = Path(tempfile.gettempdir()) / f"tesoreria_respaldo_{id(form)}.db"
+            con_bk = conectar(self.db)
+            try:
+                con_dest = sqlite3.connect(str(respaldo))
+                try:
+                    con_bk.backup(con_dest)
+                finally:
+                    con_dest.close()
+            finally:
+                con_bk.close()
+            temporales: list[Path] = []
+            try:
+                detalle, filas_ok, duplicadas, errores = [], 0, 0, []
+                for campo, (raw, nombre) in archivos.items():
+                    suf = Path(nombre).suffix or ".dat"
+                    with tempfile.NamedTemporaryFile(delete=False,
+                                                      suffix=suf) as tmp:
+                        tmp.write(raw)
+                        tmppath = Path(tmp.name)
+                    temporales.append(tmppath)
+                    if campo == "cxc":
+                        r = importar_archivo(tmppath, self.db,
+                                             nombre_original=nombre,
+                                             hoja=hoja_cxc)
+                        filas_ok += r.get("filas_ok", 0)
+                        duplicadas += r.get("duplicadas", 0)
+                        errores += [f"CxC: {e}" for e in r.get("errores", [])]
+                        detalle.append({"campo": campo, "archivo": nombre,
+                                        "filas_ok": r.get("filas_ok", 0),
+                                        "duplicadas": r.get("duplicadas", 0)})
+                    else:
+                        from etl.extractos.importar_extracto import importar_extracto
+                        r = importar_extracto(tmppath, campo, self.db,
+                                              nombre_original=nombre)
+                        duplicadas += r.get("duplicadas", 0)
+                        errores += [f"{r.get('banco', campo)}: {e}"
+                                    for e in r.get("errores_cadena", [])]
+                        detalle.append({"campo": campo, "archivo": nombre,
+                                        "banco": r.get("banco"),
+                                        "lineas_nuevas": r.get("lineas_nuevas", 0),
+                                        "duplicadas": r.get("duplicadas", 0)})
+                return self._json({"ok": True, "archivos": detalle,
+                                   "filas_ok": filas_ok,
+                                   "duplicadas": duplicadas,
+                                   "errores": errores})
+            except Exception as e:  # todo-o-nada: restaurar y avisar
+                try:
+                    con_bad = conectar(self.db)
+                    try:
+                        con_src = sqlite3.connect(str(respaldo))
+                        try:
+                            con_src.backup(con_bad)
+                        finally:
+                            con_src.close()
+                    finally:
+                        con_bad.close()
+                except Exception:
+                    pass
+                return self._json({"error": f"falló la importación, no se guardó nada: {e}"},
+                                  500)
+            finally:
+                for t in temporales:
+                    t.unlink(missing_ok=True)
+                try:
+                    respaldo.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                for suf in ("-wal", "-shm", "-journal"):
+                    try:
+                        Path(str(respaldo) + suf).unlink(missing_ok=True)
+                    except Exception:
+                        pass
         if u.path == "/api/extractos/importar":
             # Estado de cuenta bancario: multipart con 'archivo' + 'banco'
             # (pichincha|internacional|produbanco).

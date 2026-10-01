@@ -58,8 +58,8 @@ class TestBaseDatos:
             with con:
                 con.execute(
                     "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
-                    " cuenta_id, valor_usd, status) VALUES (?,?,?,?,?,?,?)",
-                    ("2026-01-05", "ingreso", "transferencia", 9999, 1, 100, "pendiente"))
+                    " valor_usd, status) VALUES (?,?,?,?,?,?)",
+                    ("2026-01-05", "ingreso", "transferencia", 9999, 100, "pendiente"))
 
 
 class TestCatalogos:

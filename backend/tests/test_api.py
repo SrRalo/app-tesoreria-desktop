@@ -151,13 +151,15 @@ def test_importar_multipart(base):
     assert len(flujo["columnas"]) == 7 and flujo["columnas"][0]["ing"] == 8500
 
 
-def test_cuadre_y_cuentas_con_aviso(base):
+def test_cuentas_con_aviso_y_sin_cuadre(base):
     url, _ = base
-    status, res, _ = llamar(url, "GET", "/api/cuadre?mes=2026-08")
-    assert status == 200 and res["mes"] == "2026-08"
-    assert set(res["total"]) >= {"apertura", "calculado", "banco_dice", "diferencia"}
-    sin_ext = [c for c in res["cuentas"] if not c["tiene_extracto"]]
-    assert sin_ext and all("Sin extracto" in c["aviso"] for c in sin_ext)
+    # La conciliación/cuadre se eliminó: estos endpoints ya no existen.
+    status, _, _ = llamar(url, "GET", "/api/cuadre?mes=2026-08")
+    assert status == 404
+    status, _, _ = llamar(url, "GET", "/api/cuentas/saldos")
+    assert status == 404
+    status, _, _ = llamar(url, "GET", "/api/conciliacion/pendientes")
+    assert status == 404
     _, cuentas, _ = llamar(url, "GET", "/api/cuentas")
     assert any("aviso" in c for c in cuentas)
 
@@ -191,18 +193,18 @@ def test_extracto_importar_y_pendientes(base):
     status, res, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
     assert status == 200 and res["lineas_nuevas"] == 2
     assert res["saldo_actual"] == 1200 and res["apertura_fijada"] == 1000
+    assert "conciliacion" not in res  # sin conciliación: no genera movimientos
     # Reimportar no duplica
     cuerpo, ctype = multipart_archivo(html, "pichincha")
     status, res2, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
     assert status == 200 and res2["lineas_nuevas"] == 0 and res2["duplicadas"] == 2
-    # Cuadre del mes cuadra tras importar
-    _, cuadro, _ = llamar(url, "GET", "/api/cuadre?mes=2026-08")
-    pich = next(c for c in cuadro["cuentas"] if c["banco"] == "Pichincha")
-    assert pich["diferencia"] == 0
+    # El extracto NO genera movimientos: el flujo sigue vacío
+    _, movs, _ = llamar(url, "GET", "/api/movimientos")
+    assert movs["total"] == 0
+    # Pero el banco sí expone el extracto en sus subpestañas
+    _, bancos, _ = llamar(url, "GET", "/api/bancos")
+    assert bancos["total"] == 1 and bancos["rows"][0]["banco"] == "Pichincha"
     # Banco inválido se rechaza
     cuerpo, ctype = multipart_archivo(html, "otro")
     status, res3, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
     assert status == 400 and "error" in res3
-    # Pendientes: todo quedó amarrado (auto o generado)
-    _, pend, _ = llamar(url, "GET", "/api/conciliacion/pendientes")
-    assert pend == {"total": 0, "rows": []}

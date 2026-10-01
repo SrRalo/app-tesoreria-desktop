@@ -1,8 +1,9 @@
 """basedatos.py — conexión SQLite + aplicación del schema.
 
 Cada conexión aplica el schema (CREATE TABLE IF NOT EXISTS + seeds RN-09),
-así que una BD vacía queda lista. Además corre la migración v2→v3
-(columnas de apertura en cuentas) para BDs creadas con el schema anterior.
+así que una BD vacía queda lista. Además corre las migraciones v2→v3
+(columnas de apertura en cuentas) y v3→v4 (bancos + clientes/proveedores)
+para BDs creadas con schemas anteriores.
 """
 from __future__ import annotations
 
@@ -61,6 +62,36 @@ def _dedup_cuentas(con: sqlite3.Connection) -> None:
     # un duplicado en cada conexión (UNIQUE es banco+numero).
     con.execute("UPDATE cuentas SET numero='2100319432' WHERE banco='Pichincha'"
                 " AND numero='Cte 11111'")
+    # v4: tras fusionar, re-enlaza banco_id por si alguna perdedora aportó el keeper.
+    try:
+        con.execute(
+            "UPDATE cuentas SET banco_id = "
+            "(SELECT id FROM bancos WHERE bancos.nombre = cuentas.banco)"
+            " WHERE banco_id IS NULL")
+    except Exception:
+        pass  # bancos aún no existe en migraciones muy viejas: lo hace _migrar_v4
+
+
+def _migrar_hash256(con: sqlite3.Connection) -> None:
+    """Re-hashea extracto_lineas de SHA1 (40 hex) a SHA256 (64 hex, RF-ETL-10).
+
+    Los campos origen siguen guardados, así que el re-hash es determinista.
+    Idempotente: solo toca filas con hash de 40 caracteres.
+    """
+    from etl.extractos.base import hash_linea
+    viejas = con.execute(
+        "SELECT id, cuenta_id, fecha, debito_usd, credito_usd,"
+        " IFNULL(referencia,''), IFNULL(descripcion,'')"
+        " FROM extracto_lineas WHERE length(hash_unico)=40").fetchall()
+    for r in viejas:
+        nuevo = hash_linea(r[1], r[2], r[3] or 0, r[4] or 0, r[5], r[6])
+        try:
+            con.execute("UPDATE extracto_lineas SET hash_unico=? WHERE id=?",
+                        (nuevo, r[0]))
+        except Exception:
+            pass  # colisión improbable: conserva el hash viejo (sigue UNIQUE)
+    if viejas:
+        con.commit()
 
 
 def _migrar_v3(con: sqlite3.Connection) -> None:
@@ -74,6 +105,63 @@ def _migrar_v3(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE cuentas ADD COLUMN tiene_extracto INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrar_v4(con: sqlite3.Connection) -> None:
+    """Migración v3→v4: bancos + clientes/proveedores (sin campos extra).
+
+    Idempotente: CREATE TABLE IF NOT EXISTS + backfills con INSERT OR IGNORE /
+    UPDATE solo donde falta. No borra columnas (cuentas.banco queda deprecated).
+    """
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS bancos ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " nombre TEXT NOT NULL UNIQUE,"
+        " logo TEXT NOT NULL DEFAULT '',"
+        " activo INTEGER NOT NULL DEFAULT 1)")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS clientes ("
+        " entidad_id INTEGER PRIMARY KEY REFERENCES entidades(id) ON DELETE CASCADE)")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS proveedores ("
+        " entidad_id INTEGER PRIMARY KEY REFERENCES entidades(id) ON DELETE CASCADE)")
+    if "banco_id" not in _columnas(con, "cuentas"):
+        con.execute("ALTER TABLE cuentas ADD COLUMN banco_id INTEGER REFERENCES bancos(id)")
+    # Backfill bancos: base primero (BD fresca vacía) + texto legado de cuentas v3.
+    for nombre in ("Pichincha", "Guayaquil", "Internacional", "Caja",
+                   "PorDefinir", "Produbanco"):
+        con.execute("INSERT OR IGNORE INTO bancos (nombre) VALUES (?)", (nombre,))
+    for (nombre,) in con.execute("SELECT DISTINCT banco FROM cuentas"):
+        if nombre:
+            con.execute("INSERT OR IGNORE INTO bancos (nombre) VALUES (?)", (nombre,))
+    con.execute(
+        "UPDATE cuentas SET banco_id = "
+        "(SELECT id FROM bancos WHERE bancos.nombre = cuentas.banco)"
+        " WHERE banco_id IS NULL")
+    # Backfill hijas desde la madre.
+    con.execute("INSERT OR IGNORE INTO clientes (entidad_id)"
+                " SELECT id FROM entidades WHERE tipo='cliente'")
+    con.execute("INSERT OR IGNORE INTO proveedores (entidad_id)"
+                " SELECT id FROM entidades WHERE tipo='proveedor'")
+    con.execute(
+        "CREATE VIEW IF NOT EXISTS v_clientes AS"
+        " SELECT e.id, e.nombre, e.activo FROM entidades e"
+        " JOIN clientes c ON c.entidad_id = e.id WHERE e.tipo = 'cliente'")
+    con.execute(
+        "CREATE VIEW IF NOT EXISTS v_proveedores AS"
+        " SELECT e.id, e.nombre, e.activo FROM entidades e"
+        " JOIN proveedores p ON p.entidad_id = e.id WHERE e.tipo = 'proveedor'")
+    con.execute(
+        "CREATE VIEW IF NOT EXISTS v_cuentas AS"
+        " SELECT c.id, c.numero, c.saldo_inicial_usd, c.activo,"
+        " c.saldo_apertura_usd, c.fecha_apertura, c.tiene_extracto,"
+        " c.banco_id, COALESCE(b.nombre, c.banco) AS banco"
+        " FROM cuentas c LEFT JOIN bancos b ON b.id = c.banco_id")
+
+
+def _migrar_concepto_insumos(con: sqlite3.Connection) -> None:
+    """Asegura el concepto 'insumos' (RN-09) en BDs creadas antes de su alta."""
+    con.execute("INSERT OR IGNORE INTO conceptos (nombre) VALUES ('insumos')")
+
+
 def conectar(db: Path) -> sqlite3.Connection:
     db.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db))
@@ -81,6 +169,9 @@ def conectar(db: Path) -> sqlite3.Connection:
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
     _migrar_v3(con)
+    _migrar_v4(con)
+    _migrar_hash256(con)
+    _migrar_concepto_insumos(con)
     _dedup_cuentas(con)
     con.commit()
     return con

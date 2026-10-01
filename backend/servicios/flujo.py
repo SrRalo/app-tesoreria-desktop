@@ -16,11 +16,10 @@ MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
          "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 MOV_SELECT = ("SELECT m.id, m.fecha_pago, m.tipo, m.tipo_pago, c.nombre AS concepto_pago,"
-              " e.nombre AS entidad, cu.banco, m.centro_costo, m.valor_usd, m.status,"
+              " e.nombre AS entidad, m.centro_costo, m.valor_usd, m.status,"
               " m.observacion FROM movimientos m"
               " JOIN conceptos c ON c.id=m.concepto_id"
-              " LEFT JOIN entidades e ON e.id=m.entidad_id"
-              " JOIN cuentas cu ON cu.id=m.cuenta_id")
+              " LEFT JOIN entidades e ON e.id=m.entidad_id")
 
 
 def _parse_ym(s: str) -> tuple[int, int]:

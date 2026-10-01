@@ -1,4 +1,4 @@
--- schema.sql v3 — BD relacional portable (SQLite, monousuario, USD)
+-- schema.sql v4 — BD relacional portable (SQLite, monousuario, USD)
 -- La DB vive junto al .exe (tesoreria.db). El Excel solo alimenta estas tablas vía ETL.
 -- Formularios unificados ingreso/egreso (RF-10, RN-09):
 --   banco | fecha_pago | tipo | tipo_pago | entidad | concepto_pago | centro_costo | valor_usd | status | observacion
@@ -17,9 +17,30 @@ CREATE TABLE IF NOT EXISTS entidades (
   activo INTEGER NOT NULL DEFAULT 1
 );
 
+-- v4: diferenciación sin campos extra (madre + extensiones 1-a-1).
+-- movimientos.entidad_id sigue apuntando a entidades(id); clientes/proveedores
+-- solo marcan a qué subtipo pertenece cada fila madre.
+CREATE TABLE IF NOT EXISTS clientes (
+  entidad_id INTEGER PRIMARY KEY REFERENCES entidades(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS proveedores (
+  entidad_id INTEGER PRIMARY KEY REFERENCES entidades(id) ON DELETE CASCADE
+);
+
+-- v4: maestra de bancos; cuentas cuelga de bancos vía banco_id.
+-- cuentas.banco (TEXT) se conserva como deprecated para DBs v3 en migración.
+CREATE TABLE IF NOT EXISTS bancos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,   -- Pichincha, Internacional, Produbanco, Guayaquil, Caja, PorDefinir
+  logo TEXT NOT NULL DEFAULT '', -- ruta en frontend/assets/bancos/ (RF-25)
+  activo INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS cuentas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  banco TEXT NOT NULL,               -- Pichincha, Internacional, Produbanco, Guayaquil, Caja
+  banco TEXT NOT NULL,               -- deprecated v4: usar bancos vía banco_id
+  banco_id INTEGER REFERENCES bancos(id),
   numero TEXT DEFAULT '',
   saldo_inicial_usd REAL NOT NULL DEFAULT 0,
   activo INTEGER NOT NULL DEFAULT 1,
@@ -29,6 +50,20 @@ CREATE TABLE IF NOT EXISTS cuentas (
   tiene_extracto INTEGER NOT NULL DEFAULT 0,  -- 1 si ya se importó su estado de cuenta
   UNIQUE (banco, numero)
 );
+
+-- v4: vistas de compatibilidad (lectura). El front/API puede leer bancos o
+-- clientes/proveedores sin romper queries contra entidades/cuentas.
+CREATE VIEW IF NOT EXISTS v_clientes AS
+  SELECT e.id, e.nombre, e.activo FROM entidades e
+  JOIN clientes c ON c.entidad_id = e.id WHERE e.tipo = 'cliente';
+CREATE VIEW IF NOT EXISTS v_proveedores AS
+  SELECT e.id, e.nombre, e.activo FROM entidades e
+  JOIN proveedores p ON p.entidad_id = e.id WHERE e.tipo = 'proveedor';
+CREATE VIEW IF NOT EXISTS v_cuentas AS
+  SELECT c.id, c.numero, c.saldo_inicial_usd, c.activo,
+    c.saldo_apertura_usd, c.fecha_apertura, c.tiene_extracto,
+    c.banco_id, COALESCE(b.nombre, c.banco) AS banco
+  FROM cuentas c LEFT JOIN bancos b ON b.id = c.banco_id;
 
 -- Catálogo cerrado de conceptos de pago (RN-09). Extensible solo por migración.
 CREATE TABLE IF NOT EXISTS conceptos (
@@ -43,7 +78,6 @@ CREATE TABLE IF NOT EXISTS movimientos (
   tipo_pago TEXT NOT NULL CHECK (tipo_pago IN ('efectivo','transferencia','cheque')),
   concepto_id INTEGER NOT NULL REFERENCES conceptos(id),
   entidad_id INTEGER REFERENCES entidades(id),
-  cuenta_id INTEGER NOT NULL REFERENCES cuentas(id),
   centro_costo TEXT DEFAULT '',
   valor_usd REAL NOT NULL CHECK (valor_usd > 0),
   status TEXT NOT NULL DEFAULT 'pendiente'
@@ -52,7 +86,7 @@ CREATE TABLE IF NOT EXISTS movimientos (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_mov
-  ON movimientos(fecha_pago, tipo, entidad_id, cuenta_id, status);
+  ON movimientos(fecha_pago, tipo, entidad_id, status);
 
 -- v3: extracto bancario (dato real, inmutable). Una fila por línea del estado
 -- de cuenta. La conciliación amarra cada línea a su movimiento; lo no
@@ -147,14 +181,26 @@ CREATE TABLE IF NOT EXISTS bitacora (
 CREATE INDEX IF NOT EXISTS idx_bitacora
   ON bitacora(fecha, accion, tabla);
 
--- Catálogos base (RN-09)
+-- Catálogos base (RN-09) + fallbacks antipérdida (RF-ETL-08)
 INSERT OR IGNORE INTO conceptos (nombre) VALUES ('nomina'), ('prestamo'),
-  ('cobranza_clientes'), ('pago_proveedores'), ('comision');
+  ('cobranza_clientes'), ('pago_proveedores'), ('comision'), ('insumos'), ('por_definir');
+
+-- v4: maestra de bancos primero; cuentas enlaza vía banco_id + texto deprecated.
+-- NOTA: el seed de cuentas NO usa banco_id para que el executescript no rompa
+-- en BDs v3 (sin esa columna); _migrar_v4() rellena bancos + banco_id después.
+INSERT OR IGNORE INTO bancos (nombre, logo) VALUES
+  ('Pichincha','assets/bancos/pichincha.png'),
+  ('Guayaquil',''), ('Internacional','assets/bancos/internacional.png'),
+  ('Caja',''), ('PorDefinir',''), ('Produbanco','assets/bancos/produbanco.webp');
 
 INSERT OR IGNORE INTO cuentas (banco, numero, saldo_inicial_usd) VALUES
   ('Pichincha','2100319432',0), ('Guayaquil','',0),
   ('Internacional','7100614609',0), ('Caja','chica',0), ('PorDefinir','',0),
   ('Produbanco','02006198356',0);
+
+-- v4: si la BD ya tenía entidades, clasifica cada fila madre en su hija.
+INSERT OR IGNORE INTO clientes (entidad_id) SELECT id FROM entidades WHERE tipo='cliente';
+INSERT OR IGNORE INTO proveedores (entidad_id) SELECT id FROM entidades WHERE tipo='proveedor';
 
 INSERT OR IGNORE INTO config (clave, valor) VALUES
   ('saldo_inicial_usd','0'), ('fecha_inicio','2026-01-05');

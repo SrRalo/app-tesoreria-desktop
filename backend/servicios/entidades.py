@@ -3,6 +3,8 @@
 Solo SELECT: este servicio nunca escribe (las entidades se crean
 automáticamente al crear movimientos). listar_cuentas agrega el cuadre
 por cuenta: apertura 31-jul + realizados vs corte del banco.
+v4: entidades es la madre; clientes/proveedores son extensiones 1-a-1
+(sin campos extra); bancos es la maestra de cuentas (cuentas.banco_id).
 """
 from __future__ import annotations
 
@@ -22,9 +24,30 @@ def listar_entidades(con: sqlite3.Connection, tipo: str = "") -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def listar_clientes(con: sqlite3.Connection) -> list[dict]:
+    """v4: clientes vía vista de compat (madre + hija)."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM v_clientes ORDER BY nombre").fetchall()]
+
+
+def listar_proveedores(con: sqlite3.Connection) -> list[dict]:
+    """v4: proveedores vía vista de compat (madre + hija)."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM v_proveedores ORDER BY nombre").fetchall()]
+
+
+def listar_bancos(con: sqlite3.Connection) -> list[dict]:
+    """v4: maestra de bancos (catálogo, sin saldos; ver servicios/bancos.py)."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM bancos ORDER BY nombre").fetchall()]
+
+
 def listar_cuentas(con: sqlite3.Connection) -> list[dict]:
     out = []
-    for c in con.execute("SELECT * FROM cuentas ORDER BY banco").fetchall():
+    # v4: nombre canónico del banco vía JOIN; fallback al texto deprecated.
+    sql = ("SELECT c.*, COALESCE(b.nombre, c.banco) AS banco FROM cuentas c"
+           " LEFT JOIN bancos b ON b.id = c.banco_id ORDER BY banco")
+    for c in con.execute(sql).fetchall():
         c = dict(c)
         mov = con.execute(
             "SELECT SUM(CASE WHEN tipo='ingreso' THEN valor_usd ELSE 0 END) ing,"

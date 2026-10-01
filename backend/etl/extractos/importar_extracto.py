@@ -2,8 +2,10 @@
 
 Flujo: parsear (parser por banco) → validar cadena de saldos → guardar
 líneas (idempotente por hash_unico) + corte → fijar apertura 31-jul si la
-cuenta aún no tiene extracto → conciliación automática por fecha →
-recalcular saldos global + por cuenta → bitácora.
+cuenta aún no tiene extracto → recalcular saldos por cuenta → bitácora.
+
+Los extractos NO generan movimientos: solo se consultan en
+Entidades > Bancos. La Vista de Flujo lee únicamente `movimientos`.
 
 En runtime la app NUNCA lee el archivo: todo queda en SQLite.
 """
@@ -104,17 +106,13 @@ def importar_extracto(path: Path, banco: str, db: Path,
                         "WHERE cuenta_id=? AND import_log_id IS NULL",
                         (log_id, cuenta_id))
 
-        from servicios.conciliacion import auto_conciliar
-        conc = auto_conciliar(con, cuenta_id)
-        from etl.importar import recalcular_saldos, recalcular_saldos_cuenta
-        recalcular_saldos(con)
+        from etl.importar import recalcular_saldos_cuenta
         recalcular_saldos_cuenta(con)
         try:
             from servicios.bitacora import registrar
             registrar(con, "IMPORTAR", "extracto_lineas", None,
                       f"{mostrado}: {nueva_lineas(nuevas, duplicadas)}, "
-                      f"corte {datos['periodo_fin']} cierra en {datos['saldo_actual']:.2f} USD, "
-                      f"conciliadas {conc['auto']} + generadas {conc['generados']}",
+                      f"corte {datos['periodo_fin']} cierra en {datos['saldo_actual']:.2f} USD",
                       anterior=None,
                       nuevo={"archivo": mostrado, "banco": nombre_banco,
                              "lineas_nuevas": nuevas, "duplicadas": duplicadas,
@@ -127,8 +125,7 @@ def importar_extracto(path: Path, banco: str, db: Path,
                 "errores_cadena": errores,
                 "saldo_anterior": datos["saldo_anterior"],
                 "saldo_actual": datos["saldo_actual"],
-                "apertura_fijada": apertura_fijada,
-                "conciliacion": conc}
+                "apertura_fijada": apertura_fijada}
     finally:
         con.close()
 
@@ -150,9 +147,6 @@ def main() -> None:
     print(f"OK: {nueva_lineas(res['lineas_nuevas'], res['duplicadas'])}.")
     print(f"Apertura: {res['saldo_anterior']:.2f} -> cierre banco: "
           f"{res['saldo_actual']:.2f} USD.")
-    print(f"Conciliación: {res['conciliacion']['auto']} auto + "
-          f"{res['conciliacion']['generados']} generados "
-          f"({res['conciliacion']['comisiones']} comisiones).")
     for e in res["errores_cadena"][:20]:
         print("  !", e)
 

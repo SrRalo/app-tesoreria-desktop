@@ -3,7 +3,7 @@
    Los escenarios RN-04 se aplican en el front sobre el flujo base del mock
    (base 100%, optimista cobros*1.15 + pagos*0.95, pesimista cobros*0.70 + egr*1.10). */
 'use strict';
-
+// diferenciar de app2.js
 /* ===== UTILS ===== */
 const $ = (s, r = document) => r.querySelector(s);
 const fmtUSD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });

@@ -6,9 +6,9 @@ from servicios import notificaciones as notif
 
 def _mov(con, fecha, tipo="egreso", status="pendiente", valor=100):
     con.execute(
-        "INSERT INTO movimientos (fecha_pago,tipo,tipo_pago,concepto_id,cuenta_id,"
-        " valor_usd,status,observacion) VALUES (?,?,?,?,?,?,?,?)",
-        (fecha, tipo, "transferencia", 1, 1, valor, status, "t"))
+        "INSERT INTO movimientos (fecha_pago,tipo,tipo_pago,concepto_id,"
+        " valor_usd,status,observacion) VALUES (?,?,?,?,?,?,?)",
+        (fecha, tipo, "transferencia", 1, valor, status, "t"))
 
 
 def test_buckets_y_badge(con):

@@ -1,7 +1,8 @@
-"""v3 — extractos bancarios, conciliación automática por fecha y cuadre mensual.
+"""Extractos bancarios sin conciliación: solo carga a extracto_lineas + cortes.
 
-Parsers con fixtures sintéticas (sin depender de los archivos reales);
-más un test de humo con los archivos reales si existen en la ruta de datos.
+Los estados de cuenta NO generan movimientos ni entran al Flujo; solo se
+consultan en Entidades > Bancos. Parsers con fixtures sintéticas (sin
+depender de los archivos reales); más humo con archivos reales si existen.
 """
 from __future__ import annotations
 
@@ -12,9 +13,7 @@ import pytest
 from etl.extractos import internacional, pichincha, produbanco
 from etl.extractos.base import es_comision, hash_linea, validar_cadena
 from etl.extractos.importar_extracto import importar_extracto
-from etl.importar import recalcular_saldos
-from servicios import conciliacion as conc
-from servicios import cuadre as srv_cuadre
+from servicios import bancos as srv_bancos
 
 PICH_HTML = """<html><head></head><body><table border="1">
 <tr><td><b>Saldo Anterior:</b></td><td colspan="8">1000.00</td></tr>
@@ -39,12 +38,11 @@ def _mov(con, fecha, tipo, banco, valor, status="pendiente",
          concepto="pago_proveedores", entidad=None):
     con.execute(
         "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
-        " entidad_id, cuenta_id, valor_usd, status, observacion)"
+        " entidad_id, valor_usd, status, observacion)"
         " VALUES (?,?, 'transferencia',"
         " (SELECT id FROM conceptos WHERE nombre=?),"
-        " (SELECT id FROM entidades WHERE nombre=?),"
-        " (SELECT id FROM cuentas WHERE banco=?), ?, ?, '')",
-        (fecha, tipo, concepto, entidad, banco, valor, status))
+        " (SELECT id FROM entidades WHERE nombre=?), ?, ?, '')",
+        (fecha, tipo, concepto, entidad, valor, status))
     return con.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
@@ -162,68 +160,32 @@ class TestInternacional:
         assert validar_cadena(d["lineas"], d["saldo_anterior"]) == []
 
 
-class TestConciliacion:
-    def test_match_por_fecha_valor_cuenta(self, con):
-        _mov(con, "2026-08-03", "ingreso", "Pichincha", 500,
-             concepto="cobranza_clientes")
-        _linea(con, "Pichincha", "2026-08-03", credito=500, desc="TRANSF", ref="D1")
-        r = conc.auto_conciliar(con)
-        assert r == {"auto": 1, "generados": 0, "comisiones": 0}
-        assert con.execute("SELECT status FROM movimientos").fetchone()[0] == "realizado"
-        assert con.execute("SELECT COUNT(*) c FROM conciliacion").fetchone()["c"] == 1
-
-    def test_no_match_otra_fecha_genera(self, con):
-        _mov(con, "2026-08-04", "ingreso", "Pichincha", 500,
-             concepto="cobranza_clientes")
-        _linea(con, "Pichincha", "2026-08-03", credito=500, desc="TRANSF", ref="D1")
-        r = conc.auto_conciliar(con)
-        assert r["auto"] == 0 and r["generados"] == 1
-        assert con.execute("SELECT COUNT(*) c FROM movimientos").fetchone()["c"] == 2
-
-    def test_comision_genera_concepto_comision(self, con):
-        _linea(con, "Pichincha", "2026-08-03", debito=0.36,
-               desc="COMISION-PAG-1391934828001", ref="X")
-        r = conc.auto_conciliar(con)
-        assert r["comisiones"] == 1
-        row = con.execute("SELECT m.tipo, c.nombre FROM movimientos m"
-                          " JOIN conceptos c ON c.id=m.concepto_id").fetchone()
-        assert (row[0], row[1]) == ("egreso", "comision")
-
-    def test_pendientes_solo_sin_amarre(self, con):
-        _linea(con, "Pichincha", "2026-08-03", credito=100, desc="A", ref="R1")
-        lid2 = _linea(con, "Pichincha", "2026-08-04", credito=200, desc="B", ref="R2")
-        assert {r["id"] for r in conc.pendientes(con)} == {lid2 - 1, lid2}
-        _mov(con, "2026-08-03", "ingreso", "Pichincha", 100,
-             concepto="cobranza_clientes")
-        conc.auto_conciliar(con)
-        # La línea sin match se genera como movimiento y queda amarrada:
-        # ya no está pendiente, pero su amarre es 'generado'.
-        assert conc.pendientes(con) == []
-        tipo = con.execute("SELECT tipo_match FROM conciliacion WHERE extracto_id=?",
-                           (lid2,)).fetchone()[0]
-        assert tipo == "generado"
-
-
-class TestCuadre:
-    def test_cuadra_con_corte(self, con):
-        con.execute("UPDATE cuentas SET saldo_apertura_usd=1000,"
-                    " fecha_apertura='2026-07-31', tiene_extracto=1"
-                    " WHERE banco='Pichincha'")
-        cta = con.execute("SELECT id FROM cuentas WHERE banco='Pichincha'").fetchone()[0]
-        con.execute("INSERT INTO cortes_bancarios (cuenta_id, fecha_corte,"
-                    " saldo_anterior, depositos, retiros, saldo_actual, archivo)"
-                    " VALUES (?,'2026-08-31',1000,500,300,1200,'pich.xls')", (cta,))
-        _mov(con, "2026-08-03", "ingreso", "Pichincha", 500,
-             status="realizado", concepto="cobranza_clientes")
-        _mov(con, "2026-08-04", "egreso", "Pichincha", 300,
-             status="realizado", concepto="pago_proveedores")
-        recalcular_saldos(con)
-        r = srv_cuadre.cuadre_mes(con, "2026-08")
-        pich = next(c for c in r["cuentas"] if c["banco"] == "Pichincha")
-        assert (pich["apertura"], pich["calculado"], pich["banco_dice"],
-                pich["diferencia"]) == (1000, 1200, 1200, 0)
-        sin_ext = [c for c in r["cuentas"] if not c["tiene_extracto"]]
-        assert sin_ext and all("Sin extracto" in c["aviso"] for c in sin_ext)
+class TestSinConciliacion:
+    def test_importar_no_genera_movimientos(self, tmp_path, db):
+        p = tmp_path / "pich.xls"
+        p.write_text(PICH_HTML, encoding="utf-8")
+        antes = None
+        from nucleo.basedatos import conectar
+        con = conectar(db)
+        try:
+            antes = con.execute("SELECT COUNT(*) c FROM movimientos").fetchone()["c"]
+        finally:
+            con.close()
+        r = importar_extracto(p, "pichincha", db, nombre_original="pich.xls")
+        assert r["lineas_nuevas"] == 2 and r["apertura_fijada"] == 1000
+        assert "conciliacion" not in r  # sin conciliación
+        con = conectar(db)
+        try:
+            despues = con.execute("SELECT COUNT(*) c FROM movimientos").fetchone()["c"]
+            assert despues == antes  # el extracto no entra al flujo
+            assert con.execute("SELECT COUNT(*) c FROM conciliacion").fetchone()["c"] == 0
+            assert con.execute("SELECT COUNT(*) c FROM extracto_lineas").fetchone()["c"] == 2
+            # Visible solo en Bancos
+            bancos = srv_bancos.listar_bancos(con)
+            assert len(bancos) == 1 and bancos[0]["banco"] == "Pichincha"
+            assert bancos[0]["saldo"] == 1200
+        finally:
+            con.close()
 
     def test_importar_extracto_idempotente(self, tmp_path, db):
         p = tmp_path / "pich.xls"

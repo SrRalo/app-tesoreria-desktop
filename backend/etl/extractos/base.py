@@ -10,7 +10,13 @@ MESES_ES = {"ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
 
 
 def num(v) -> float:
-    """Parsea montos con $, comas y paréntesis contables."""
+    """Parsea montos con $, comas y paréntesis contables. Delega en normalizar."""
+    try:
+        from etl.normalizar import parse_monto
+        n, _ = parse_monto(v)
+        return n
+    except Exception:
+        pass
     if isinstance(v, (int, float)):
         return float(v)
     s = str(v or "").strip()
@@ -31,11 +37,13 @@ def norm(s) -> str:
 
 def hash_linea(cuenta_id: int, fecha: str, debito: float,
                credito: float, referencia: str, descripcion: str = "") -> str:
-    # La descripción entra al hash: hay comisiones del mismo día, mismo valor
-    # y sin referencia que colisionarían sin ella (39 líneas en Internacional).
+    # RF-ETL-10: SHA256(cuenta|fecha|debito|credito|referencia).
+    # La descripción se incluye además: hay comisiones del mismo día, mismo
+    # valor y sin referencia que colisionarían sin ella (39 líneas en
+    # Internacional). Desviación documentada del spec, a favor de no perder filas.
     base = (f"{cuenta_id}|{fecha}|{debito:.2f}|{credito:.2f}"
             f"|{norm(referencia)}|{norm(descripcion)}")
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
 def validar_cadena(lineas: list[dict], saldo_inicial: float,

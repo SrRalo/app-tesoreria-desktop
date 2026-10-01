@@ -32,9 +32,6 @@
       <a class="nav-item" href="#/movimientos" data-view="movimientos">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 7 7 17"/><path d="M16 17H7V8"/></svg>
         <span>Movimientos</span></a>
-      <a class="nav-item" href="#/conciliacion" data-view="conciliacion">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 6-7 7-3-3"/><path d="m22 10-7 7-3-3"/></svg>
-        <span>Conciliación</span></a>
       <a class="nav-item" href="#/entidades" data-view="entidades">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
         <span>Entidades</span></a>
@@ -77,12 +74,6 @@
           </div>
           <div class="spacer"></div>
           <div class="toolbar" role="group" aria-label="Filtros del dashboard">
-            <label class="f">Escenario
-              <select class="input" id="fEscenario">
-                <option value="base" selected>Base</option>
-                <option value="optimista">Optimista</option>
-                <option value="pesimista">Pesimista</option>
-              </select></label>
             <label class="f">Año
               <select class="input" id="fAnioDash">
                 <option value="">Todos</option>
@@ -93,6 +84,7 @@
                 <option value="30" selected>30 días</option>
                 <option value="90">90 días</option>
               </select></label>
+            <button class="btn primary" id="btnAplicarDash">Aplicar filtros</button>
             <button class="btn primary" id="btnMovimiento">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
               Movimiento</button>
@@ -139,6 +131,7 @@
               <input class="input" type="month" id="fMes" value="2026-01"></label>
             <label class="f" id="wAnio" hidden>Año
               <select class="input" id="fAnio"><option selected>2026</option></select></label>
+            <button class="btn primary" id="btnAplicarFlujo">Aplicar filtros</button>
           </div>
         </div>
         <div class="panel">
@@ -146,126 +139,6 @@
             <table class="tbl matrix" id="matrix"></table>
           </div>
           <div class="panel-foot"><span id="matrixSel" aria-live="polite"></span><span style="width:12px"></span><span id="matrixFoot"></span></div>
-        </div>
-      </section>
-      <!-- ===== Conciliación Bancaria ===== -->
-      <section class="view" id="view-conciliacion" aria-label="Conciliación Bancaria">
-        <div class="page-head">
-          <div>
-            <h1>Conciliación Bancaria</h1>
-            <p class="desc" id="reconRange">Cuadra tus extractos bancarios con los movimientos de tu tesorería.</p>
-          </div>
-          <div class="spacer"></div>
-          <div class="toolbar" role="group" aria-label="Filtros de conciliación">
-            <label class="f">Cuenta / Banco
-              <select class="input" id="cBancoSelect">
-                <option value="pichincha">Banco Pichincha (...2360)</option>
-                <option value="internacional">Banco Internacional (...7335)</option>
-                <option value="produbanco">Produbanco (...2593)</option>
-              </select></label>
-            <label class="f">Mes de corte
-              <input class="input" type="month" id="cMesCorte" value="2026-08"></label>
-            <button class="btn primary" id="btnAutoRecon">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-              Cuadre Automático</button>
-          </div>
-        </div>
-
-        <!-- Tarjetas de resumen del cuadre -->
-        <div class="kpis" id="reconKpis" aria-live="polite">
-          <div class="kpi">
-            <div class="kpi-top"><span class="kpi-label">Saldo Extracto (Banco)</span></div>
-            <div class="kpi-val num" id="kpiBankBal">$236,014.39</div>
-            <div class="kpi-sub">Corte oficial al banco</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-top"><span class="kpi-label">Saldo en Libros (App)</span></div>
-            <div class="kpi-val num" id="kpiAppBal">$236,014.39</div>
-            <div class="kpi-sub">Movimientos ejecutados</div>
-          </div>
-          <div class="kpi hero">
-            <div class="kpi-top"><span class="kpi-label">Diferencia por Cuadrar</span></div>
-            <div class="kpi-val num" id="kpiDiff">$0.00</div>
-            <div class="kpi-sub" id="kpiDiffStatus">Cuadre exacto</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-top"><span class="kpi-label">Pendientes</span></div>
-            <div class="kpi-val num" id="kpiPendingCount">0 de 48</div>
-            <div class="kpi-sub">Líneas por conciliar</div>
-          </div>
-        </div>
-
-        <!-- Panel Doble de Conciliación -->
-        <div class="recon-dual-panel">
-          <!-- Panel Izquierdo: Lo Real (Extracto) -->
-          <div class="panel recon-col">
-            <div class="panel-head">
-              <h2>1. Extracto del Banco</h2>
-              <div class="spacer"></div>
-              <span class="badge info" id="bankListCount">48 transacciones</span>
-            </div>
-            <div class="recon-table-wrap">
-              <table class="tbl" id="tblExtracto" aria-label="Líneas del extracto bancario">
-                <thead>
-                  <tr>
-                    <th style="width:32px"></th>
-                    <th>Fecha</th>
-                    <th>Descripción Banco</th>
-                    <th class="amount">Monto USD</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody id="tbodyExtracto">
-                  <!-- Se llena desde app.js mediante GET /api/extractos -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Panel Derecho: Lo Esperado (Movimientos App) -->
-          <div class="panel recon-col">
-            <div class="panel-head">
-              <h2>2. Movimientos en App</h2>
-              <div class="spacer"></div>
-              <span class="badge warn" id="appListCount">12 pendientes</span>
-            </div>
-            <div class="recon-table-wrap">
-              <table class="tbl" id="tblAppMovs" aria-label="Movimientos en tesorería">
-                <thead>
-                  <tr>
-                    <th style="width:32px"></th>
-                    <th>Fecha</th>
-                    <th>Entidad / Concepto</th>
-                    <th class="amount">Monto USD</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody id="tbodyAppMovs">
-                  <!-- Se llena desde app.js mediante GET /api/movimientos -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Barra Inferior para Conciliación Manual o Ajuste por Comisión -->
-        <div class="recon-action-bar panel" id="reconActionBar">
-          <div class="recon-summary">
-            <span>Selección Banco: <b class="num" id="selBankAmt">$0.00</b></span>
-            <span class="divider">|</span>
-            <span>Selección App: <b class="num" id="selAppAmt">$0.00</b></span>
-            <span class="divider">|</span>
-            <span>Diferencia: <b class="num neg" id="selDiffAmt">$0.00</b></span>
-          </div>
-          <div class="spacer"></div>
-          <div class="toolbar">
-            <button class="btn ghost" id="btnRegComision" title="Crear movimiento por comisión bancaria automáticamente">
-              + Registrar Comisión ($)
-            </button>
-            <button class="btn primary" id="btnEmparejar" disabled>
-              Conciliar Seleccionados
-            </button>
-          </div>
         </div>
       </section>
       <section class="view" id="view-movimientos" aria-label="Movimientos">
@@ -287,6 +160,7 @@
               <select class="input" id="mStatus"><option value="">Todos</option><option value="pendiente">Pendiente</option><option value="aplazado">Aplazado</option><option value="realizado">Realizado</option><option value="vencido">Vencido</option></select></label>
             <label class="f">Buscar
               <input class="input" type="search" id="mQ" placeholder="Entidad u observación…" autocomplete="off"></label>
+            <button class="btn primary" id="btnAplicarMov">Aplicar filtros</button>
           </div></div>
           <div style="overflow-x:auto"><table class="tbl" id="movTable" aria-label="Tabla de movimientos"></table></div>
           <div class="panel-foot"><span id="movPage"></span><span style="width:12px"></span>
@@ -298,6 +172,12 @@
         <div class="page-head">
           <div><h1>Entidades</h1>
             <p class="desc">Clientes, proveedores y bancos en modo lectura. Nacen de tus movimientos.</p></div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Acciones de entidades">
+            <button class="btn primary" id="btnCargarEnt">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+              Cargar archivos</button>
+          </div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -339,6 +219,7 @@
                 </select></label>
               <label class="f">Buscar
                 <input class="input" type="search" id="logQ" placeholder="Detalle…" autocomplete="off"></label>
+              <button class="btn primary" id="btnAplicarLogs">Aplicar filtros</button>
               <button class="btn primary" id="btnLogsTxt">Descargar .txt</button>
             </div>
             <p class="desc" id="logCount">…</p>
@@ -390,6 +271,73 @@
 </div>
 <div id="toasts" aria-live="polite"></div>
 
+<!-- ===== modal carga de archivos (RF-23: un campo por fuente + validación previa) ===== -->
+<div class="overlay" id="importOverlay" hidden>
+  <div class="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+    <h2 id="importTitle">Cargar archivos</h2>
+    <p class="desc">Sube el estado de cuenta de cada banco y tu Excel de CxC / CxP, cada uno en su campo.
+      Puedes llenar solo los campos que necesites; los vacíos se ignoran. Antes de importar se verifica
+      que cada archivo esté en el campo correcto.</p>
+    <form id="importForm" novalidate>
+      <div class="import-grid">
+        <div class="import-field" data-field="pichincha">
+          <label class="f" id="lbl-pichincha">Estado de cuenta Pichincha
+            <span class="fmt">Formato esperado: HTML</span></label>
+          <div class="dropzone" data-drop="pichincha" role="button" tabindex="0"
+            aria-labelledby="lbl-pichincha" aria-label="Subir estado de cuenta Pichincha en HTML">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="pichincha" accept=".html,.htm" hidden></div>
+          <div class="file-chip" data-chip="pichincha" hidden></div>
+          <p class="field-help" data-help="pichincha" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="internacional">
+          <label class="f" id="lbl-internacional">Estado de cuenta Internacional
+            <span class="fmt">Formato esperado: BIFF .xls</span></label>
+          <div class="dropzone" data-drop="internacional" role="button" tabindex="0"
+            aria-labelledby="lbl-internacional" aria-label="Subir estado de cuenta Internacional en xls">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="internacional" accept=".xls" hidden></div>
+          <div class="file-chip" data-chip="internacional" hidden></div>
+          <p class="field-help" data-help="internacional" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="produbanco">
+          <label class="f" id="lbl-produbanco">Estado de cuenta Produbanco
+            <span class="fmt">Formato esperado: .xlsx</span></label>
+          <div class="dropzone" data-drop="produbanco" role="button" tabindex="0"
+            aria-labelledby="lbl-produbanco" aria-label="Subir estado de cuenta Produbanco en xlsx">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="produbanco" accept=".xlsx" hidden></div>
+          <div class="file-chip" data-chip="produbanco" hidden></div>
+          <p class="field-help" data-help="produbanco" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="cxc">
+          <label class="f" id="lbl-cxc">CxC / CxP
+            <span class="fmt">Formato esperado: .xlsx, .xls o .csv</span></label>
+          <div class="dropzone" data-drop="cxc" role="button" tabindex="0"
+            aria-labelledby="lbl-cxc" aria-label="Subir Excel de CxC y CxP">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="cxc" accept=".xlsx,.xls,.csv" hidden></div>
+          <div class="file-chip" data-chip="cxc" hidden></div>
+          <label class="f sheet-wrap" data-sheetwrap="cxc" hidden>Hoja del libro
+            <select class="input" data-sheet="cxc" aria-label="Hoja del libro CxC"></select></label>
+          <p class="field-help" data-help="cxc" role="alert" hidden></p>
+        </div>
+      </div>
+      <div class="review-card" id="importPreview" hidden></div>
+      <p class="form-err" id="importErr" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="importCancel">Cancelar</button>
+        <button type="button" class="btn primary" id="importValidate" disabled>Validar y continuar</button>
+        <button type="submit" class="btn primary" id="importConfirm" hidden>Confirmar e importar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ===== modal movimiento (crear / editar) ===== -->
 <div class="overlay" id="movOverlay" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="movTitle">
@@ -399,8 +347,6 @@
       <div class="form-grid">
         <label class="f">Tipo
           <select class="input" id="f_tipo"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>
-        <label class="f">Banco
-          <select class="input" id="f_banco"></select></label>
         <label class="f">Fecha de pago
           <input class="input" type="date" id="f_fecha" required></label>
         <label class="f">Tipo de pago
@@ -408,7 +354,7 @@
         <label class="f">Entidad (cliente / proveedor)
           <input class="input" type="text" id="f_entidad" list="dlEntidades" placeholder="Nombre…" autocomplete="off"></label>
         <label class="f">Concepto de pago
-          <select class="input" id="f_concepto"><option value="nomina">Nomina</option><option value="prestamo">Prestamo</option><option value="cobranza_clientes">Cobranza clientes</option><option value="pago_proveedores">Pago proveedores</option></select></label>
+          <select class="input" id="f_concepto"><option value="nomina">Nomina</option><option value="prestamo">Prestamo</option><option value="cobranza_clientes">Cobranza clientes</option><option value="pago_proveedores">Pago proveedores</option><option value="insumos">Insumos</option></select></label>
         <label class="f">Centro de costo
           <input class="input" type="text" id="f_cc" placeholder="Opcional…" autocomplete="off"></label>
         <label class="f">Valor (USD)
@@ -457,9 +403,12 @@
       <div class="welcome-opt">
         <h3>Importar Excel</h3>
         <p>Usa la plantilla oficial para evitar errores de lectura.</p>
-        <label class="f">Archivo .xlsx
-          <input class="input" type="file" id="wFile" accept=".xlsx"></label>
-        <button class="btn primary" id="wImport" style="width:100%;justify-content:center">Importar y entrar</button>
+        <label class="f">Archivo .xlsx / .xls / .csv
+          <input class="input" type="file" id="wFile" accept=".xlsx,.xls,.csv"></label>
+        <label class="f">Hoja (opcional, vacío = automática)
+          <input class="input" type="text" id="wHoja" placeholder="Movimientos" autocomplete="off"></label>
+        <button class="btn primary" id="wImport" style="width:100%;justify-content:center">Vista previa</button>
+        <div id="wPreview" style="margin-top:10px"></div>
         <button class="btn ghost" id="wTemplate" style="width:100%;justify-content:center">Descargar plantilla</button>
       </div>
       <div class="welcome-opt">

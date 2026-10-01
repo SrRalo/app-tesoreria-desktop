@@ -5,7 +5,7 @@ import pytest
 
 from etl.plantilla import crear_plantilla
 from nucleo.basedatos import conectar
-from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada
+from servicios.arranque import estado, importar_archivo, init_vacio, plantilla_asegurada, recursos
 from servicios.movimientos import ErrorValidacion
 
 
@@ -60,3 +60,30 @@ class TestPlantillaAsegurada:
         assert out1.exists()
         out2 = plantilla_asegurada(dest)
         assert out2 == out1
+
+
+class TestRecursos:
+    def test_historial_desglosa_archivos_y_tipos(self, tmp_path):
+        xlsx = tmp_path / "fuente.xlsx"
+        crear_plantilla(xlsx)
+        db = tmp_path / "imp.db"
+        importar_archivo(xlsx, db, nombre_original="fuente.xlsx")
+        importar_archivo(xlsx, db, nombre_original="fuente.xlsx")
+        con2 = conectar(db)
+        try:
+            cta = con2.execute("SELECT id FROM cuentas WHERE banco='Pichincha'").fetchone()[0]
+            con2.execute("INSERT INTO cortes_bancarios (cuenta_id, fecha_corte,"
+                         " saldo_actual, archivo) VALUES (?,?,?,?)",
+                         (cta, "2026-08-31", 100.0, "estado_pichincha.html"))
+            con2.execute("INSERT INTO import_log (archivo, filas_ok, filas_error)"
+                         " VALUES (?,?,?)", ("estado_pichincha.html", 10, 0))
+            con2.commit()
+            rec = recursos(con2)
+            assert rec["ultimo_excel"]["archivo"] == "estado_pichincha.html"
+            assert len(rec["historial"]) == 3
+            ext = next(h for h in rec["historial"] if h["archivo"] == "estado_pichincha.html")
+            assert ext["tipo"] == "extracto" and ext["banco"] == "Pichincha"
+            mov = next(h for h in rec["historial"] if h["archivo"] == "fuente.xlsx")
+            assert mov["tipo"] == "movimientos"
+        finally:
+            con2.close()

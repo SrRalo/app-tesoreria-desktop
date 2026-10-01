@@ -62,6 +62,7 @@ def test_acepta_fecha_latina_y_valor_con_formato(tmp_path):
 
 
 def test_etl_crea_concepto_cuenta_y_entidad_nuevos(tmp_path):
+    # Antipérdida RF-ETL-08: lo no mapeado va a fallbacks, no crea catálogos libres.
     fila = ["Banco X", "2026-01-05", "ingreso", "cheque", "Nuevo CLI", "servicios",
             "", 100, "realizado", ""]
     xlsx = xlsx_con_filas(tmp_path / "nuevo.xlsx", [fila])
@@ -70,26 +71,34 @@ def test_etl_crea_concepto_cuenta_y_entidad_nuevos(tmp_path):
     con = conectar(db)
     try:
         assert con.execute(
-            "SELECT 1 FROM conceptos WHERE nombre='servicios'").fetchone()
+            "SELECT 1 FROM conceptos WHERE nombre='servicios'").fetchone() is None
         assert con.execute(
-            "SELECT 1 FROM cuentas WHERE banco='Banco X'").fetchone()
+            "SELECT 1 FROM cuentas WHERE banco='Banco X'").fetchone() is None
         assert con.execute(
-            "SELECT tipo FROM entidades WHERE nombre='Nuevo CLI'").fetchone()["tipo"] == "cliente"
+            "SELECT 1 FROM entidades WHERE nombre='Nuevo CLI'").fetchone() is None
+        row = con.execute(
+            "SELECT m.observacion, c.banco, k.nombre FROM movimientos m "
+            "JOIN cuentas c ON c.id=m.cuenta_id "
+            "JOIN conceptos k ON k.id=m.concepto_id").fetchone()
+        assert row["banco"] == "PorDefinir" and row["nombre"] == "por_definir"
+        assert "BANCO-ORIG" in row["observacion"] and "ENT-ORIG" in row["observacion"]
     finally:
         con.close()
 
 
-def test_sin_hoja_movimientos_aborta(tmp_path):
+def test_sin_hoja_movimientos_usa_primera_hoja(tmp_path):
+    # Header dinámico RF-ETL-02: sin hoja 'Movimientos' usa la primera disponible.
     wb = Workbook()
     wb.active.title = "Otra"
-    p = tmp_path / "mala.xlsx"
+    wb.active.append(COLUMNAS)
+    wb.active.append(BUENA)
+    p = tmp_path / "otra.xlsx"
     wb.save(str(p))
-    with pytest.raises(SystemExit):
-        leer_filas(p)
+    assert len(leer_filas(p)) == 1
 
 
 def test_validar_detecta_todo(tmp_path):
     d = dict(zip(COLUMNAS, ["", "x", "otro", "tarjeta", "", "", "", 0, "raro", ""]))
     d["_fila"] = 9
     errs = validar(d)
-    assert len(errs) >= 5 and all("fila 9" in e for e in errs)
+    assert len(errs) >= 3 and all("fila 9" in e for e in errs)

@@ -1,8 +1,9 @@
-"""cuadre.py — compara lo operado en la app contra el corte del banco.
+"""cuadre.py — DEPRECATED (congelado, sin uso).
 
-Por cuenta: calculado = apertura 31-jul + realizados hasta el corte.
-Se compara contra cortes_bancarios.saldo_actual; la diferencia debe ser 0.
-Cuentas sin extracto (Guayaquil/Caja) quedan en cero con aviso en la UI.
+El cuadre calculado-vs-corte se eliminó junto con la conciliación: el flujo
+ya no incluye movimientos de extractos. Los cortes siguen visibles como
+saldo informativo en Entidades > Bancos (servicios/bancos.py).
+Se conserva el archivo por compatibilidad, sin callers en la API.
 """
 from __future__ import annotations
 
@@ -55,3 +56,43 @@ def cuadre_mes(con: sqlite3.Connection, mes: str = "2026-08") -> dict:
     tot["diferencia"] = round(tot["calculado"] - tot["banco_dice"], 2)
     return {"mes": mes, "cuadra": tot["diferencia"] == 0,
             "total": tot, "cuentas": det}
+
+
+def saldos_triples(con: sqlite3.Connection, hasta: str = "") -> dict:
+    """RN-14 / RF-22: por cuenta {real, libros, proyectado_30d} + total.
+
+    real = último corte del banco. libros = real + realizados no conciliados.
+    proyectado(d) = libros + CxC pendientes<=d - CxP pendientes<=d (d=+30d).
+    """
+    from datetime import date, timedelta
+    if hasta:
+        d = hasta
+    else:
+        d = (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+    cuentas = []
+    tot = {"real": 0.0, "libros": 0.0, "proyectado": 0.0}
+    for c in con.execute("SELECT * FROM cuentas ORDER BY banco").fetchall():
+        corte = con.execute(
+            "SELECT saldo_actual FROM cortes_bancarios WHERE cuenta_id=?"
+            " ORDER BY fecha_corte DESC LIMIT 1", (c["id"],)).fetchone()
+        real = round(corte["saldo_actual"], 2) if corte else 0.0
+        noconc = con.execute(
+            "SELECT SUM(CASE WHEN m.tipo='ingreso' THEN m.valor_usd ELSE -m.valor_usd END) s"
+            " FROM movimientos m LEFT JOIN conciliacion k ON k.movimiento_id=m.id"
+            " WHERE m.cuenta_id=? AND m.status='realizado' AND k.movimiento_id IS NULL",
+            (c["id"],)).fetchone()
+        libros = round(real + (noconc["s"] or 0), 2)
+        pend = con.execute(
+            "SELECT SUM(CASE WHEN tipo='ingreso' THEN valor_usd ELSE -valor_usd END) s"
+            " FROM movimientos WHERE cuenta_id=? AND status IN ('pendiente','aplazado','vencido')"
+            " AND fecha_pago<=?", (c["id"], d)).fetchone()
+        proy = round(libros + (pend["s"] or 0), 2)
+        cuentas.append({"id": c["id"], "banco": c["banco"], "numero": c["numero"] or "",
+                        "tiene_extracto": bool(c["tiene_extracto"]),
+                        "real": real, "libros": libros, "proyectado": proy,
+                        "aviso": None if c["tiene_extracto"] else AVISO_SIN_EXTRACTO})
+        tot["real"] += real
+        tot["libros"] += libros
+        tot["proyectado"] += proy
+    return {"hasta": d, "total": {k: round(v, 2) for k, v in tot.items()},
+            "cuentas": cuentas}

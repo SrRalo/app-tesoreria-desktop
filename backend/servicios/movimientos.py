@@ -98,23 +98,28 @@ def crear(con: sqlite3.Connection, d: dict) -> int:
                         (et, d["entidad"]))
             ent_id = con.execute("SELECT id FROM entidades WHERE nombre=?",
                                  (d["entidad"],)).fetchone()[0]
+            # v4: mantiene la hija correspondiente (sin campos extra).
+            hija = "clientes" if et == "cliente" else "proveedores"
+            con.execute(f"INSERT OR IGNORE INTO {hija} (entidad_id) VALUES (?)",
+                        (ent_id,))
         cta = con.execute("SELECT id FROM cuentas WHERE banco=?",
                           (d.get("banco", ""),)).fetchone()
         if not cta:
-            raise ErrorValidacion("banco desconocido")
+            # v4: temporal hasta eliminarlo totalmente del front
+            pass
         cur = con.execute(
             "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
-            " entidad_id, cuenta_id, centro_costo, valor_usd, status, observacion)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " entidad_id, centro_costo, valor_usd, status, observacion)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
             (d["fecha_pago"], d["tipo"], d["tipo_pago"], row["id"], ent_id,
-             cta["id"], d.get("centro_costo", ""), valor,
+             d.get("centro_costo", ""), valor,
              d.get("status", "pendiente"), d.get("observacion", "")))
         mid = cur.lastrowid
         from servicios.bitacora import registrar
         nuevo = _fila_dict(con, mid) or {
             "id": mid, "fecha_pago": d["fecha_pago"], "tipo": d["tipo"],
             "valor_usd": valor, "status": d.get("status", "pendiente"),
-            "entidad": d.get("entidad", ""), "banco": d.get("banco", "")}
+            "entidad": d.get("entidad", "")}
         registrar(con, "CREAR", "movimientos", mid,
                   f"{nuevo.get('tipo')} {nuevo.get('valor_usd')} USD"
                   f" {nuevo.get('fecha_pago')} ({nuevo.get('status')})",

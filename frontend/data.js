@@ -23,6 +23,10 @@ const MockApi = (() => {
   const PROVEEDORES = ['Nómina Planta', 'Larvas del Golfo', 'Insumos Marinos SA', 'Fábrica Pro',
     'Servicios Adm', 'Logística VTA', 'Banco Pichincha', 'Banco Internacional'];
   const BANCOS = ['Pichincha', 'Guayaquil', 'Internacional', 'Caja', 'PorDefinir', 'Produbanco'];
+  // Logos por banco (RF-25): la ruta vive en datos, no en el código del front.
+  const BANCOS_LOGO = { Pichincha: 'assets/bancos/pichincha.png',
+    Internacional: 'assets/bancos/internacional.png',
+    Produbanco: 'assets/bancos/produbanco.webp' };
   const TIPOS_PAGO = ['transferencia', 'transferencia', 'transferencia', 'efectivo', 'cheque'];
   const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
   const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -116,7 +120,7 @@ const MockApi = (() => {
     const errs = [];
     if (!['ingreso', 'egreso'].includes(d.tipo)) errs.push('tipo inválido (RN-09)');
     if (!['efectivo', 'transferencia', 'cheque'].includes(d.tipo_pago)) errs.push('tipo_pago inválido (RN-09)');
-    if (!['nomina', 'prestamo', 'cobranza_clientes', 'pago_proveedores', 'comision'].includes(String(d.concepto_pago || '').toLowerCase())) errs.push('concepto_pago inválido (RN-09)');
+    if (!['nomina', 'prestamo', 'cobranza_clientes', 'pago_proveedores', 'comision', 'insumos'].includes(String(d.concepto_pago || '').toLowerCase())) errs.push('concepto_pago inválido (RN-09)');
     if (!['pendiente', 'aplazado', 'realizado', 'vencido'].includes(d.status)) errs.push('status inválido (RN-09)');
     if (!BANCOS.includes(d.banco)) errs.push('banco desconocido');
     if (!(+d.valor_usd > 0)) errs.push('valor_usd debe ser > 0');
@@ -131,7 +135,16 @@ const MockApi = (() => {
       const ms = movs.filter((m) => m.entidad === n && m.status === 'realizado');
       const total = ms.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.valor_usd : -m.valor_usd), 0);
       const ultimo = ms.length ? ms[ms.length - 1].fecha_pago : '—';
-      return { nombre: n, tipo, total_usd: total, movimientos: ms.length, ultimo };
+      const porConcepto = {};
+      for (const m of ms) {
+        const c = m.concepto_pago || '—';
+        porConcepto[c] = porConcepto[c] || { n: 0, ultima: '' };
+        porConcepto[c].n++;
+        if (m.fecha_pago > porConcepto[c].ultima) porConcepto[c].ultima = m.fecha_pago;
+      }
+      const concepto = ms.length ? Object.entries(porConcepto).sort((a, b) =>
+        b[1].n - a[1].n || (b[1].ultima < a[1].ultima ? -1 : 1))[0][0] : '—';
+      return { nombre: n, tipo, total_usd: total, movimientos: ms.length, ultimo, concepto };
     }).filter((e) => e.movimientos > 0);
   }
 
@@ -240,10 +253,88 @@ const MockApi = (() => {
     cuentas: async () => BANCOS.map((b) => ({ banco: b, numero: b === 'Pichincha' ? '2100319432' : '',
       saldo_usd: 0, banco_dice: null, diferencia: null, tiene_extracto: 0,
       aviso: 'Sin extracto de agosto 2026 — saldo 0 referencial, no afecta el cuadre' })),
-    cuadre: async (mes = '2026-08') => ({ mes, cuadra: true,
-      total: { apertura: 0, ing: 0, egr: 0, calculado: 0, banco_dice: 0, diferencia: 0 },
-      cuentas: [], nota: 'Cuadre disponible con backend.' }),
-    pendientes: async () => ({ total: 0, rows: [] }),
+    // ---- bancos con extracto (RF-25/26, demo: se derivan de los movimientos) ----
+    bancos: async () => {
+      const conMov = [...new Set(movs.map((m) => m.banco))].filter((b) => BANCOS_LOGO[b]);
+      return conMov.map((b) => {
+        const ms = movs.filter((m) => m.banco === b && m.status === 'realizado');
+        const saldo = ms.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.valor_usd : -m.valor_usd), 0);
+        const fechas = ms.map((m) => m.fecha_pago).sort();
+        return { cuenta_id: BANCOS.indexOf(b) + 1, banco: b, numero: '',
+          logo: BANCOS_LOGO[b], saldo, fecha_corte: fechas.length ? fechas[fechas.length - 1] : '',
+          lineas: ms.length };
+      });
+    },
+    bancoMeses: async (cuentaId) => {
+      const b = BANCOS[(+cuentaId || 1) - 1];
+      const grupos = {};
+      for (const m of movs.filter((m) => m.banco === b && m.status === 'realizado')) {
+        const mes = m.fecha_pago.slice(0, 7);
+        grupos[mes] = (grupos[mes] || 0) + 1;
+      }
+      const N = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+      return Object.keys(grupos).sort().reverse().map((mes) => ({
+        mes, etiqueta: N[+mes.slice(5, 7) - 1] + ' ' + mes.slice(0, 4), lineas: grupos[mes] }));
+    },
+    bancoExtracto: async (cuentaId, p = {}) => {
+      const b = BANCOS[(+cuentaId || 1) - 1];
+      const mes = p.mes || '';
+      const limite = Math.min(Math.max(+p.limite || 50, 1), 100);
+      const pagina = Math.max(+p.pagina || 1, 1);
+      let ms = movs.filter((m) => m.banco === b && m.status === 'realizado')
+        .sort((x, y) => x.fecha_pago < y.fecha_pago ? -1 : 1);
+      if (mes) ms = ms.filter((m) => m.fecha_pago.startsWith(mes));
+      let acum = 0;
+      const rows = ms.map((m) => {
+        const monto = m.tipo === 'ingreso' ? m.valor_usd : -m.valor_usd;
+        acum = Math.round((acum + monto) * 100) / 100;
+        return { fecha: m.fecha_pago, referencia: (m.observacion || '').slice(0, 60),
+          descripcion: (m.entidad || '') + ' · ' + (m.concepto_pago || ''),
+          monto, saldo: acum };
+      });
+      const paginas = Math.max(1, Math.ceil(rows.length / limite));
+      const pg = Math.min(pagina, paginas);
+      return { total: rows.length, pagina: pg, paginas, limite,
+        rows: rows.slice((pg - 1) * limite, pg * limite) };
+    },
+    // Validación previa demo (el backend hace la estricta por contenido).
+    validarCarga: async (archivos) => {
+      const NOMBRE = { pichincha: 'Pichincha', internacional: 'Internacional',
+        produbanco: 'Produbanco', cxc: 'CxC / CxP' };
+      const DET = { pichincha: 'un estado de cuenta de Pichincha',
+        internacional: 'un estado de cuenta de Internacional',
+        produbanco: 'un estado de cuenta de Produbanco',
+        cxc: 'un archivo de CxC / CxP', desconocido: 'un archivo no reconocido' };
+      const resultados = [];
+      for (const [campo, file] of Object.entries(archivos)) {
+        if (!file) continue;
+        const buf = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+        const hex = [...buf].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
+        const head = (await file.slice(0, 8192).text()).toLowerCase();
+        let tipo = 'desconocido';
+        if (head.includes('<table') && (head.includes('saldo anterior') || head.includes('detalle de movimientos')))
+          tipo = 'pichincha';
+        else if (hex.startsWith('D0CF11E0')) tipo = 'internacional';
+        else if (hex.startsWith('504B0304'))
+          tipo = campo === 'cxc' ? 'cxc' : 'produbanco';
+        else if (head.includes('entidad') && head.includes('valor') && head.includes('fecha'))
+          tipo = 'cxc';
+        const ok = tipo === campo;
+        resultados.push({ campo, ok, tipo_detectado: tipo,
+          motivo: ok ? 'Verificado (demo local): el contenido corresponde al campo.'
+            : (tipo === 'desconocido'
+              ? 'Este archivo no parece ' + DET[campo] + '. Revise que esté en el campo correcto.'
+              : 'Este archivo parece ' + DET[tipo] + ', pero está en el campo de ' +
+                NOMBRE[campo] + '. Cámbialo al campo correcto.'),
+          hojas: [] });
+      }
+      return { ok: !!resultados.length && resultados.every((r) => r.ok), resultados };
+    },
+    importarLote: async () => {
+      throw new Error('sin backend: la importación múltiple requiere API');
+    },
+    // Extractos solo en Entidades > Bancos; sin conciliación ni cuadre.
     // CRUD (misma forma que POST/PUT/DELETE /api/movimientos; recalcula saldos)
     // Reglas: al crear solo pendiente/realizado; al editar solo fecha+obs y pasa a aplazado.
     crear: async (d) => {
@@ -329,17 +420,22 @@ const RealApi = {
   estado: () => jfetch('/api/estado'),
   initVacio: (d = {}) => jfetch('/api/init-vacio', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }),
-  importar: async (f) => {
+  importar: async (f, hoja = '') => {
     const fd = new FormData();
     fd.append('archivo', f, f.name);
+    if (hoja) fd.append('hoja', hoja);
     const r = await jfetch('/api/importar', { method: 'POST', body: fd });
     if (!r.filas_ok && r.errores && r.errores.length)
       throw new Error(r.errores.slice(0, 3).join(' · '));
     return r;
   },
   flujo: (modo, p = {}) => jfetch('/api/flujo?' + _qs({ modo, desde: p.desde, mes: p.mes, anio: p.anio })),
-  cuadre: (mes = '2026-08') => jfetch('/api/cuadre?' + _qs({ mes })),
-  pendientes: (p = {}) => jfetch('/api/conciliacion/pendientes?' + _qs(p)),
+  previewImportar: async (f, hoja = '') => {
+    const fd = new FormData();
+    fd.append('archivo', f, f.name);
+    if (hoja) fd.append('hoja', hoja);
+    return jfetch('/api/importar/preview', { method: 'POST', body: fd });
+  },
   importarExtracto: async (f, banco) => {
     const fd = new FormData();
     fd.append('archivo', f, f.name);
@@ -347,6 +443,29 @@ const RealApi = {
     const r = await jfetch('/api/extractos/importar', { method: 'POST', body: fd });
     return r;
   },
+  validarCarga: async (fd) => {
+    const r = await fetch('/api/importar/validar', { method: 'POST', body: fd });
+    let data = null;
+    try { data = await r.json(); }
+    catch (e) { throw new Error('respuesta inválida del servidor (' + r.status + ')'); }
+    if (!r.ok && !(data && data.resultados)) throw new Error((data && data.error) || ('error ' + r.status));
+    return data;
+  },
+  importarLote: async (fd) => {
+    const r = await fetch('/api/importar/lote', { method: 'POST', body: fd });
+    let data = null;
+    try { data = await r.json(); }
+    catch (e) { throw new Error('respuesta inválida del servidor (' + r.status + ')'); }
+    if (!r.ok) {
+      const e = new Error((data && data.error) || ('error ' + r.status));
+      e.resultados = (data && data.resultados) || [];
+      throw e;
+    }
+    return data;
+  },
+  bancos: () => jfetch('/api/bancos').then((r) => r.rows || []),
+  bancoMeses: (id) => jfetch('/api/bancos/' + id + '/meses').then((r) => r.rows || []),
+  bancoExtracto: (id, p = {}) => jfetch('/api/bancos/' + id + '/extracto?' + _qs(p)),
   saldos: (anio = '') => jfetch('/api/saldos?' + _qs({ anio })),
   anios: () => jfetch('/api/anios'),
   notificaciones: () => jfetch('/api/notificaciones'),
@@ -412,15 +531,18 @@ const Api = (() => {
     ESCENARIOS: MockApi.ESCENARIOS,
     estado: usar('estado'),
     initVacio: usar('initVacio'),
-    importar: async (f) => {
+    importar: async (f, hoja = '') => {
       await sondear();
       if (modo !== 'real')
         throw new Error('sin backend: abre la app desde el ejecutable o el servidor con API');
-      return RealApi.importar(f);
+      return RealApi.importar(f, hoja);
     },
     flujo: usar('flujo'),
-    cuadre: usar('cuadre'),
-    pendientes: usar('pendientes'),
+    previewImportar: async (f, hoja) => {
+      await sondear();
+      if (modo !== 'real') throw new Error('sin backend: la vista previa requiere API');
+      return RealApi.previewImportar(f, hoja);
+    },
     importarExtracto: async (f, banco) => {
       await sondear();
       if (modo !== 'real')
@@ -433,6 +555,27 @@ const Api = (() => {
     movimientos: usar('movimientos'),
     entidades: usar('entidades'),
     cuentas: usar('cuentas'),
+    bancos: usar('bancos'),
+    bancoMeses: usar('bancoMeses'),
+    bancoExtracto: usar('bancoExtracto'),
+    validarCarga: async (archivos) => {
+      // archivos: {campo: File}. Con backend se envía FormData; en demo,
+      // olfato local por contenido (el backend hace la validación estricta).
+      await sondear();
+      if (modo !== 'real') return MockApi.validarCarga(archivos);
+      const fd = new FormData();
+      for (const [campo, f] of Object.entries(archivos)) if (f) fd.append(campo, f, f.name);
+      return RealApi.validarCarga(fd);
+    },
+    importarLote: async (archivos, hojaCxc = '') => {
+      await sondear();
+      if (modo !== 'real')
+        throw new Error('sin backend: abre la app desde el ejecutable o el servidor con API');
+      const fd = new FormData();
+      for (const [campo, f] of Object.entries(archivos)) if (f) fd.append(campo, f, f.name);
+      if (hojaCxc) fd.append('hoja_cxc', hojaCxc);
+      return RealApi.importarLote(fd);
+    },
     crear: usar('crear'),
     actualizar: usar('actualizar'),
     marcarRealizado: usar('marcarRealizado'),

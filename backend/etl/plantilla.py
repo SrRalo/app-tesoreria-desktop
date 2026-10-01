@@ -15,7 +15,7 @@ from nucleo.rutas import DB_DIR
 COLUMNAS = ["banco", "fecha_pago", "tipo", "tipo_pago", "entidad",
             "concepto_pago", "centro_costo", "valor_usd", "status", "observacion"]
 TIPOS_PAGO = ["efectivo", "transferencia", "cheque"]
-CONCEPTOS = ["nomina", "prestamo", "cobranza_clientes", "pago_proveedores", "comision"]
+CONCEPTOS = ["nomina", "prestamo", "cobranza_clientes", "pago_proveedores", "comision", "insumos"]
 STATUS = ["pendiente", "aplazado", "realizado", "vencido"]
 EJEMPLOS = [
     ["Pichincha", "2026-01-05", "ingreso", "transferencia", "PACIFICCAM", "prestamo", "", 8500, "realizado", "Cobro factura 101"],
@@ -68,7 +68,7 @@ def crear_plantilla(destino: Path) -> Path:
         "2. banco: Pichincha, Guayaquil, Internacional o Caja. fecha_pago: YYYY-MM-DD o DD/MM/YYYY.",
         "3. tipo: ingreso/egreso. tipo_pago: efectivo, transferencia, cheque.",
         "4. entidad: nombre del cliente (ingreso) o proveedor (egreso). Vacío = sin entidad.",
-        "5. concepto_pago: nomina, prestamo, cobranza_clientes, pago_proveedores, comision (comisiones bancarias). centro_costo: texto libre (ej. planta).",
+        "5. concepto_pago: nomina, prestamo, cobranza_clientes, pago_proveedores, comision (comisiones bancarias), insumos. centro_costo: texto libre (ej. planta).",
         "6. valor_usd: número > 0, sin $. Todo en USD. status: pendiente, aplazado, realizado, vencido.",
         "7. Solo status=realizado suma al flujo; pendiente/aplazado/vencido es proyección y alerta.",
         "8. Filas con error se reportan al importar y no rompen la carga.",

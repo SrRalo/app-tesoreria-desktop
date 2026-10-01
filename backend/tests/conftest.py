@@ -34,18 +34,21 @@ def sembrar(con):
         if m["entidad"]:
             con.execute("INSERT OR IGNORE INTO entidades (tipo, nombre) VALUES (?,?)",
                         (m["entidad_tipo"], m["entidad"]))
-        con.execute(
-            """INSERT INTO movimientos
-               (fecha_pago, tipo, tipo_pago, concepto_id, entidad_id, cuenta_id,
-                centro_costo, valor_usd, status, observacion)
-               VALUES (?,?,?,
-                 (SELECT id FROM conceptos WHERE nombre=?),
-                 (SELECT id FROM entidades WHERE nombre=?),
-                 (SELECT id FROM cuentas WHERE banco=?),
-                 ?,?,?,?)""",
-            (m["fecha_pago"], m["tipo"], m["tipo_pago"], m["concepto_pago"],
-             m["entidad"] or None, m["banco"],
-             m["centro_costo"], m["valor_usd"], m["status"], m["observacion"]))
+            # v4: mantiene la hija correspondiente (sin campos extra).
+            hija = "clientes" if m["entidad_tipo"] == "cliente" else "proveedores"
+            con.execute(f"INSERT OR IGNORE INTO {hija} (entidad_id)"
+                        " SELECT id FROM entidades WHERE nombre=?", (m["entidad"],))
+            con.execute(
+                """INSERT INTO movimientos
+                   (fecha_pago, tipo, tipo_pago, concepto_id, entidad_id,
+                    centro_costo, valor_usd, status, observacion)
+                   VALUES (?,?,?,
+                     (SELECT id FROM conceptos WHERE nombre=?),
+                     (SELECT id FROM entidades WHERE nombre=?),
+                     ?,?,?,?)""",
+                (m["fecha_pago"], m["tipo"], m["tipo_pago"], m["concepto_pago"],
+                 m["entidad"] or None,
+                 m["centro_costo"], m["valor_usd"], m["status"], m["observacion"]))
     for tabla, col in (("entidades", "nombre"), ("cuentas", "banco"), ("conceptos", "nombre")):
         clave = "entidades" if tabla == "entidades" else tabla
         ids[clave] = {r[col]: r["id"] for r in con.execute(f"SELECT id, {col} FROM {tabla}")}
