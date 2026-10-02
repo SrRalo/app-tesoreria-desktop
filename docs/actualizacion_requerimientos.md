@@ -12,6 +12,7 @@ A continuación te detallo **qué deberías reemplazar, agregar y corregir**, in
 
 * **El problema:** En RF-19 y RF-20 indicas que la app importa extractos bancarios y concilia. Sin embargo, en §3.1 (Alcance) y en RF-07 (Navegación) estableces que la app solo tiene **4 vistas** (*Dashboard Principal, Vista de Flujo, Movimientos, Entidades*). ¿Dónde visualiza el usuario el cuadre de bancos o resuelve diferencias manualmente?
 * **Solución:** Ajusta a **5 vistas** o agrega el sub-módulo de **Conciliación Bancaria**.
+> **Resolución (a6c416b): descartado.** Los extractos solo se consultan en Entidades > Bancos; la conciliación manual/automática se eliminó (endpoints retirados, `conciliacion.py` DEPRECATED). No se agrega vista ni 5ª entrada al sidebar.
 
 #### B. Incompletitud en el Esquema de BD (§8.3)
 
@@ -59,7 +60,7 @@ En tesorería existen **3 tipos de saldos por cuenta de banco** que debes explic
 
 | ID | Nombre | Descripción | Prioridad | Criterio de aceptación | Estado |
 | --- | --- | --- | --- | --- | --- |
-| RF-21 | Vista de Conciliación Manual (Doble Panel) | Pantalla para comparar extractos bancarios sin conciliar vs movimientos pendientes de la app. Permite vincular manualmente un movimiento con una línea de extracto o aplicar diferencias por comisión bancaria | Alta | Selección manual aplica vínculo, actualiza estado a `realizado`/`conciliado` y recalcula diferencia a 0 | Propuesto |
+| RF-21 | Vista de Conciliación Manual (Doble Panel) | Pantalla para comparar extractos bancarios sin conciliar vs movimientos pendientes de la app. Permite vincular manualmente un movimiento con una línea de extracto o aplicar diferencias por comisión bancaria. **Descartado en a6c416b (ver nota en §1.A): no se implementa.** | Alta | Selección manual aplica vínculo, actualiza estado a `realizado`/`conciliado` y recalcula diferencia a 0 | Descartado |
 | RF-22 | Desglose de Saldos en Dashboard/Entidades | Mostrar para cada cuenta bancaria tres valores: Saldo Real Extracto, Saldo en Libros (Ejecutado) y Saldo Proyectado a 30 días | Media | Tarjetas de cuentas en Entidades y Dashboard diferencian entre saldo real de banco y saldo proyectado | Propuesto |
 
 #### ➕ Agregar en **§6 Reglas de negocio**:

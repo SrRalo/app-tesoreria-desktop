@@ -1,9 +1,10 @@
-/* app.js — flow-treasury · incremento 1 (shell + Dashboard)
-   Secciones: UTILS / ROUTER / DASHBOARD / GRÁFICO / EVENTOS.
-   Los escenarios RN-04 se aplican en el front sobre el flujo base del mock
-   (base 100%, optimista cobros*1.15 + pagos*0.95, pesimista cobros*0.70 + egr*1.10). */
+/* app.js — flow-treasury
+   Secciones: UTILS / ROUTER / DASHBOARD / VISTA DE FLUJO / GRÁFICO / MOVIMIENTOS /
+   DETALLE / ENTIDADES (con subpestañas de bancos) / CONFIGURACIÓN / BIENVENIDA / NOTIFICACIONES / EVENTOS.
+   Los extractos bancarios solo se consultan en Entidades > Bancos; no generan
+   movimientos ni entran al Flujo. */
 'use strict';
-// diferenciar de app2.js
+
 /* ===== UTILS ===== */
 const $ = (s, r = document) => r.querySelector(s);
 const fmtUSD = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -15,11 +16,24 @@ const fmtK = (v) => {
   if (a >= 1e3) return (v / 1e3).toFixed(0) + ' mil';
   return String(Math.round(v));
 };
-function toast(msg) {
+/* Toasts vanilla (RF-24): contenedor aria-live, role=alert en errores,
+   variantes éxito/advertencia/error, cierre solo + con botón. Sin alert(). */
+function toast(msg, tipo) {
+  const box = $('#toasts');
   const t = document.createElement('div');
-  t.className = 'toast'; t.textContent = msg;
-  $('#toasts').appendChild(t);
-  setTimeout(() => t.remove(), 4200);
+  t.className = 'toast' + (tipo ? ' ' + tipo : '');
+  if (tipo === 'err') t.setAttribute('role', 'alert');
+  const p = document.createElement('p');
+  p.textContent = msg;
+  const x = document.createElement('button');
+  x.className = 'toast-x';
+  x.setAttribute('aria-label', 'Cerrar aviso');
+  x.textContent = '✕';
+  x.onclick = () => t.remove();
+  t.appendChild(p);
+  t.appendChild(x);
+  box.appendChild(t);
+  setTimeout(() => t.remove(), tipo === 'err' ? 7000 : 4200);
 }
 /* Confirmación de seguridad propia (fondo con blur, foco en el diálogo) */
 function askConfirm(title, msg, yesLabel) {
@@ -43,7 +57,7 @@ function askConfirm(title, msg, yesLabel) {
     $('#confirmNo').focus();
   });
 }
-const state = { escenario: 'base', horizonte: 30, anio: '' };
+const state = { horizonte: 30, anio: '' };
 const flujoState = { modo: 'diario', desde: '2026-01-19', mes: '2026-01', anio: '2026',
   expIng: false, expEgr: false, weeks: null, weekCache: {}, semLoading: false, semDone: false, dataEnd: null };
 
@@ -76,20 +90,9 @@ function route() {
 window.addEventListener('hashchange', route);
 
 /* ===== DASHBOARD ===== */
-function aplicarEscenario(cols, key) {
-  const f = Api.ESCENARIOS[key];
-  let acum = cols[0].saldo_inicial;
-  return cols.map((c) => {
-    const ing = c.ing * f.ing, egr = c.egr * f.egr, neto = ing - egr;
-    acum = acum + neto;
-    return { ...c, ing, egr, neto, acumulado: acum };
-  });
-}
-
 async function renderDashboard() {
   const saldos = await Api.saldos(state.anio || '');
   if (!saldos.length) {
-    // BD vacía recién iniciada: sin datos que graficar (el modal RF-14 guía la carga).
     $('#dashRange').textContent = 'Sin datos todavía · importa tu Excel o crea movimientos';
     $('#dashAlert').innerHTML = '';
     $('#kpis').innerHTML = '';
@@ -102,7 +105,6 @@ async function renderDashboard() {
   }
   const n = Math.min(state.horizonte, saldos.length);
   const base = saldos.slice(-n);
-  // Ventana con etiquetas día + fecha para el gráfico y KPIs
   const cols = base.map((s) => {
     const d = new Date(s.fecha + 'T12:00:00');
     return { clave: s.fecha, ing: s.ing, egr: s.egr,
@@ -111,7 +113,7 @@ async function renderDashboard() {
       saldo_inicial: 0 };
   });
   cols[0].saldo_inicial = base[0].acumulado_usd - base[0].neto;
-  const sim = aplicarEscenario(cols, state.escenario);
+  const sim = cols;
 
   const totIng = sim.reduce((s, c) => s + c.ing, 0);
   const totEgr = sim.reduce((s, c) => s + c.egr, 0);
@@ -121,10 +123,8 @@ async function renderDashboard() {
 
   $('#dashRange').textContent =
     'Del ' + fmtFecha(sim[0].clave) + ' al ' + fmtFecha(sim[sim.length - 1].clave) +
-    (state.anio ? ' · año ' + state.anio : '') +
-    ' · escenario ' + Api.ESCENARIOS[state.escenario].nombre + ' · USD';
+    (state.anio ? ' · año ' + state.anio : '') + ' · USD';
 
-  // Alerta de déficit: primer día con acumulado < 0
   const mal = sim.find((c) => c.acumulado < 0);
   const box = $('#dashAlert');
   if (mal) {
@@ -133,14 +133,13 @@ async function renderDashboard() {
       '<div class="banner error enter" role="alert">' +
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>' +
       '<div><b>Déficit proyectado el ' + fmtFecha(mal.clave) + ': ' + fmtUSD.format(mal.acumulado) + '.</b> ' +
-      'Faltan ' + dias + ' días al escenario ' + Api.ESCENARIOS[state.escenario].nombre.toLowerCase() + '.</div>' +
+      'Faltan ' + dias + ' días.</div>' +
       '<span class="act"><a class="btn" href="#/flujo">Ver en Flujo</a></span></div>';
   } else {
     box.innerHTML =
       '<div class="banner info enter">' +
       '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>' +
-      '<div><b>Sin déficit en el horizonte de ' + n + ' días</b> al escenario ' +
-      Api.ESCENARIOS[state.escenario].nombre.toLowerCase() + '.</div></div>';
+      '<div><b>Sin déficit en el horizonte de ' + n + ' días</b>.</div></div>';
   }
 
   const kpi = (label, val, sub, hero) =>
@@ -157,10 +156,20 @@ async function renderDashboard() {
     kpi('Flujo neto', '<span class="' + cls(neto) + '">' + fmtUSD.format(neto) + '</span>',
       neto < 0 ? 'Periodo en rojo' : 'Periodo en verde');
 
+  try {
+    const st = await Api.saldosCuentas();
+    if (st && st.total) {
+      $('#kpis').innerHTML +=
+        kpi('Saldo en libros', fmtUSD.format(st.total.libros),
+          'Real bancos ' + fmtUSD.format(st.total.real)) +
+        kpi('Proyectado +30d', fmtUSD.format(st.total.proyectado),
+          'Al ' + (st.hasta || ''));
+    }
+  } catch (e) { /* mock sin saldos */ }
+
   drawChart(sim);
   $('#chartFoot').textContent = n + ' días · ' + fmtFecha(sim[0].clave) + ' → ' + fmtFecha(sim[sim.length - 1].clave);
 
-  // Vencidos y próximos: pendientes/aplazados ordenados por fecha
   const { rows } = await Api.movimientos({ status: '', page: 1, limit: 200 });
   const pend = rows.filter((m) => m.status !== 'realizado')
     .sort((a, b) => a.fecha_pago < b.fecha_pago ? -1 : 1).slice(0, 5);
@@ -198,7 +207,8 @@ function subRows(movs, cols, signo) {
       const hit = esMesCol(c.clave) ? m.fecha_pago.startsWith(c.clave) : m.fecha_pago === c.clave;
       return hit ? '<td class="hit" data-mid="' + m.id + '">' + (signo < 0 ? '−' : '+') + fmtUSD.format(m.valor_usd) + '</td>' : '<td></td>';
     }).join('');
-    const etiqueta = esc(m.entidad || '(sin entidad)') + ' · ' + esc(m.banco);
+    const etiqueta = esc(m.entidad || '(sin entidad)') + ' · ' + esc(m.banco) +
+      ' · ' + esc(m.concepto_pago || '—');
     return '<tr class="sub"><th class="concept" scope="row">' + etiqueta + '</th>' + tds + '</tr>';
   }).join('');
 }
@@ -233,7 +243,6 @@ function paintSel(r, c) {
     td.classList.add('sel');
     headCells[c + 1].classList.add('col-sel');
     bodyRows[r].cells[0].classList.add('row-sel');
-    // El ⋯ solo aparece sobre el monto seleccionado de una subfila
     if (td.dataset.mid) {
       const b = document.createElement('button');
       b.className = 'mini-btn cell-detail';
@@ -262,10 +271,9 @@ function paintSel(r, c) {
 async function renderFlujo() {
   const { modo, desde, mes, anio, expIng, expEgr } = flujoState;
   const wrap = $('#matrixWrap');
-  const sl = wrap.scrollLeft; // anexar a la derecha no debe saltar el scroll
+  const sl = wrap.scrollLeft;
   let data;
   if (modo === 'diario') {
-    // Scroll infinito: la fecha elegida es el punto de partida, se anexan días de 7 en 7.
     if (!flujoState.weeks) {
       flujoState.weeks = [desde];
       flujoState.semDone = false;
@@ -332,14 +340,12 @@ async function renderFlujo() {
     ? cols.length + ' días cargados · ' + (flujoState.semDone ? 'fin de los datos' : 'sigue a la derecha para más')
     : cols.length + ' columnas · ' + (nIng + nEgr) + ' movimientos · scroll horizontal, sin paginación';
   wrap.scrollLeft = sl;
-  // Si todo cabe en pantalla no hay scroll: anexar hasta desbordar o agotar datos.
   if (modo === 'diario' && !flujoState.semDone)
     requestAnimationFrame(() => {
       if (wrap.scrollWidth <= wrap.clientWidth + 10) loadNextWeek();
     });
 }
 
-/* Anexa los siguientes 7 días al acercarse al borde derecho (solo modo diario) */
 async function loadNextWeek() {
   if (flujoState.semLoading || flujoState.semDone || flujoState.weeks.length >= 60) return;
   flujoState.semLoading = true;
@@ -376,7 +382,6 @@ function drawChart(cols) {
   const X = (i) => padL + (cols.length === 1 ? iw / 2 : (i / (cols.length - 1)) * iw);
   const Y = (v) => padT + ih - ((v - lo) / span) * ih;
 
-  // grid + etiquetas Y abreviadas
   ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--ticks');
   ctx.font = '12px Arial'; ctx.textAlign = 'right'; ctx.lineWidth = 1;
   ctx.setLineDash([3, 4]);
@@ -386,22 +391,18 @@ function drawChart(cols) {
     ctx.fillText(fmtK(v), padL - 8, y + 4);
   }
   ctx.setLineDash([]);
-  // cero
   if (lo < 0 && hi > 0) {
     ctx.strokeStyle = '#c2313c'; ctx.beginPath(); ctx.moveTo(padL, Y(0)); ctx.lineTo(W - padR, Y(0)); ctx.stroke();
   }
-  // barras neto
   const bw = Math.max(2, Math.min(10, iw / cols.length - 3));
   cols.forEach((c, i) => {
     ctx.fillStyle = c.neto < 0 ? '#e8a3a8' : '#9ec3ee';
     const y0 = Y(0), y1 = Y(c.neto);
     ctx.fillRect(X(i) - bw / 2, Math.min(y0, y1), bw, Math.max(2, Math.abs(y1 - y0)));
   });
-  // etiquetas X (cada N)
   ctx.fillStyle = css('--ticks'); ctx.textAlign = 'center';
   const step = Math.ceil(cols.length / 8);
   cols.forEach((c, i) => { if (i % step === 0) ctx.fillText(c.subtitulo, X(i), H - 8); });
-  // línea acumulado + relleno
   const grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
   grad.addColorStop(0, 'rgba(0,112,242,.18)'); grad.addColorStop(1, 'rgba(0,112,242,.01)');
   ctx.beginPath();
@@ -410,7 +411,6 @@ function drawChart(cols) {
   ctx.lineTo(X(cols.length - 1), Y(lo)); ctx.lineTo(X(0), Y(lo)); ctx.closePath();
   ctx.fillStyle = grad; ctx.fill();
 
-  // tooltip
   cv.onmousemove = (ev) => {
     const r = cv.getBoundingClientRect();
     const mx = ev.clientX - r.left;
@@ -442,7 +442,7 @@ async function renderMovimientos() {
   $('#movNext').disabled = movState.page >= pages;
   const tbl = $('#movTable');
   tbl.innerHTML = '<thead><tr><th>Movimiento</th><th>Fecha pago</th><th>Tipo pago</th>' +
-    '<th>Banco</th><th>Status</th><th class="amount">Valor USD</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>' +
+    '<th>Status</th><th class="amount">Valor USD</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>' +
     (rows.length ? rows.map((m) =>
       '<tr><td><div class="ent"><span class="ent-ico ' + (m.tipo === 'ingreso' ? 'in' : 'out') + '">' +
       (m.tipo === 'ingreso'
@@ -452,7 +452,7 @@ async function renderMovimientos() {
       '<small>' + esc(m.concepto_pago) + (m.centro_costo ? ' · ' + esc(m.centro_costo) : '') +
       (m.observacion ? ' · ' + esc(m.observacion) : '') + '</small></span></div></td>' +
       '<td class="num">' + fmtFecha(m.fecha_pago) + '</td>' +
-      '<td>' + esc(m.tipo_pago) + '</td><td>' + esc(m.banco) + '</td>' +
+      '<td>' + esc(m.tipo_pago) + '</td>' +
       '<td><span class="badge ' + badgeStatus(m.status) + '">' + m.status + '</span></td>' +
       '<td class="amount ' + (m.tipo === 'ingreso' ? 'pos' : 'neg') + '">' +
       (m.tipo === 'ingreso' ? '+' : '−') + fmtUSD.format(m.valor_usd) + '</td>' +
@@ -463,20 +463,18 @@ async function renderMovimientos() {
         : '') +
       '<button class="icon-btn danger" data-del="' + m.id + '" aria-label="Eliminar movimiento ' + m.id + '">Borrar</button>' +
       '</div></td></tr>').join('')
-      : '<tr><td colspan="7"><div class="empty"><h2>Sin resultados</h2><p>Ningún movimiento coincide con los filtros.</p></div></td></tr>') +
+      : '<tr><td colspan="6"><div class="empty"><h2>Sin resultados</h2><p>Ningún movimiento coincide con los filtros.</p></div></td></tr>') +
     '</tbody>';
 }
 
-/* --- modal: crear (9 campos, status pendiente|realizado) o editar (solo fecha+obs → aplazado) --- */
+
+//ajustar ETL para carga de datos
 let editingId = null, reviewed = false;
-const BLOQUEADOS_EDICION = ['f_tipo', 'f_banco', 'f_tipopago', 'f_entidad', 'f_concepto', 'f_cc', 'f_valor', 'f_status'];
+const BLOQUEADOS_EDICION = ['f_tipo', 'f_tipopago', 'f_entidad', 'f_concepto', 'f_cc', 'f_valor', 'f_status'];
 async function openModal(id = null) {
   editingId = id; reviewed = false;
-  const cuentas = await Api.cuentas();
-  $('#f_banco').innerHTML = cuentas.map((c) => '<option>' + esc(c.banco) + '</option>').join('');
   const cli = await Api.entidades('cliente'), prv = await Api.entidades('proveedor');
   $('#dlEntidades').innerHTML = cli.concat(prv).map((e) => '<option value="' + esc(e.nombre) + '">').join('');
-  // status según modo: al crear solo pendiente/realizado (RN-12)
   $('#f_status').innerHTML = id
     ? '<option value="aplazado">Aplazado (automático al editar)</option>'
     : '<option value="pendiente">Pendiente</option><option value="realizado">Realizado</option>';
@@ -517,7 +515,6 @@ async function submitModal(ev) {
   const d = leerForm();
   $('#movErr').hidden = true;
   if (!reviewed) {
-    // validación local espejo de RN-09 antes de mostrar el review
     const faltan = [];
     if (!d.fecha_pago) faltan.push('fecha de pago');
     if (!(d.valor_usd > 0)) faltan.push('valor mayor a 0');
@@ -572,13 +569,13 @@ async function submitModal(ev) {
 /* ===== DETALLE DE MOVIMIENTO (botón ⋯ de las subfilas) ===== */
 let detailId = null;
 async function openDetail(id) {
-  const { rows } = await Api.movimientos({ page: 1, limit: 500 });
-  const m = rows.find((x) => x.id === +id);
-  if (!m) { toast('Movimiento no encontrado'); return; }
+  const resp = await fetch(`/api/movimientos/${id}`);
+  if (!resp.ok) { toast('Movimiento no encontrado'); return; }
+  const m = await resp.json();
   detailId = m.id;
   $('#detailSub').textContent = (m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso') + ' · ' + fmtFecha(m.fecha_pago);
   $('#detailBody').innerHTML = '<table>' +
-    [['Tipo', m.tipo], ['Banco', m.banco], ['Fecha de pago', fmtFecha(m.fecha_pago)],
+    [['Tipo', m.tipo], ['Fecha de pago', fmtFecha(m.fecha_pago)],
      ['Tipo de pago', m.tipo_pago], ['Entidad', m.entidad || '—'],
      ['Concepto de pago', m.concepto_pago], ['Centro de costo', m.centro_costo || '—'],
      ['Valor', fmtUSD2.format(m.valor_usd)], ['Status', m.status],
@@ -594,17 +591,127 @@ let entTab = 'cliente';
 const ICO_BUILDING = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>';
 const ICO_BANK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>';
 
-/* Resumen por entidad (nombre, total, nº movs, último): el mock ya lo trae
-   calculado; con API real se agrega aquí desde los movimientos. */
 async function resumenEntidades(rows, tipo) {
   if (rows.length && typeof rows[0].movimientos === 'number') return rows;
   const { rows: movs } = await Api.movimientos({ page: 1, limit: 500 });
   return rows.map((r) => {
     const ms = movs.filter((m) => m.entidad === r.nombre && m.status === 'realizado');
     const total = ms.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.valor_usd : -m.valor_usd), 0);
+    // Concepto dominante: el más usado; empate → el del movimiento más reciente.
+    let concepto = '—';
+    if (ms.length) {
+      const porConcepto = {};
+      for (const m of ms) {
+        const c = m.concepto_pago || '—';
+        porConcepto[c] = porConcepto[c] || { n: 0, ultima: '' };
+        porConcepto[c].n++;
+        if (m.fecha_pago > porConcepto[c].ultima) porConcepto[c].ultima = m.fecha_pago;
+      }
+      concepto = Object.entries(porConcepto).sort((a, b) =>
+        b[1].n - a[1].n || (b[1].ultima < a[1].ultima ? -1 : 1))[0][0];
+    }
     return { nombre: r.nombre, tipo, total_usd: total, movimientos: ms.length,
-      ultimo: ms.length ? ms.map((m) => m.fecha_pago).sort().pop() : '—' };
+      ultimo: ms.length ? ms.map((m) => m.fecha_pago).sort().pop() : '—',
+      concepto };
   }).sort((a, b) => a.nombre < b.nombre ? -1 : 1);
+}
+
+/* ===== BANCOS: subpestañas con logo + estado de cuenta por mes (RF-25/26) =====
+   Solo lectura: la carga se hace únicamente con el formulario de la Parte 1. */
+const bankState = { lista: [], activo: null, meses: [], abierto: null, pagina: 1 };
+
+function logoBancoImg(b) {
+  // La ruta del logo viene de datos; si falta, Landmark + nombre como respaldo.
+  if (!b.logo)
+    return '<span class="bank-fallback">' + ICO_BANK + '<span>' + esc(b.banco) + '</span></span>';
+  return '<img class="bank-logo" src="' + esc(b.logo) + '" alt="' + esc(b.banco) + '" loading="lazy">';
+}
+
+async function renderBancos(body) {
+  let bancos = [];
+  try { bancos = await Api.bancos(); } catch (e) { bancos = []; }
+  bankState.lista = bancos;
+  if (!bancos.length) {
+    body.innerHTML = '<div class="empty"><div class="empty-ico">' + ICO_BANK + '</div>' +
+      '<h2>Aún no hay estados de cuenta</h2>' +
+      '<p>Sube el estado de cuenta de cada banco para ver su saldo y sus movimientos por mes.</p>' +
+      '<button class="btn primary" data-open-import>Cargar archivos</button></div>';
+    return;
+  }
+  if (!bancos.some((x) => x.cuenta_id === bankState.activo)) bankState.activo = bancos[0].cuenta_id;
+  const b = bancos.find((x) => x.cuenta_id === bankState.activo);
+  const tabs = '<div class="bank-tabs" role="tablist" aria-label="Bancos con estado de cuenta">' +
+    bancos.map((x) => {
+      const on = x.cuenta_id === b.cuenta_id;
+      return '<button class="bank-tab' + (on ? ' active' : '') + '" role="tab" aria-selected="' + on + '"' +
+        ' data-banktab="' + x.cuenta_id + '">' + logoBancoImg(x) +
+        '<span>' + esc(x.banco) + '</span></button>';
+    }).join('') + '</div>';
+  const head = '<div class="bank-head"><div class="bank-label">Saldo según último estado de cuenta</div>' +
+    '<div class="bank-total' + (b.saldo < 0 ? ' neg' : '') + '">' + fmtUSD2.format(b.saldo) + '</div>' +
+    '<div class="bank-sub">Corte al ' + fmtFecha(b.fecha_corte) +
+    (b.numero ? ' · cuenta ' + esc(b.numero) : '') + ' · USD</div></div>';
+  body.innerHTML = tabs + head + '<div id="bankMonths"><p class="desc">Cargando meses…</p></div>';
+  await renderMeses(b);
+}
+
+async function renderMeses(b) {
+  const box = $('#bankMonths');
+  if (!box) return;
+  let meses = [];
+  try { meses = await Api.bancoMeses(b.cuenta_id); } catch (e) { meses = []; }
+  bankState.meses = meses;
+  if (!meses.length) {
+    box.innerHTML = '<div class="empty"><h2>Aún no hay estados de cuenta</h2>' +
+      '<p>Este banco todavía no tiene meses cargados.</p>' +
+      '<button class="btn primary" data-open-import>Cargar archivos</button></div>';
+    return;
+  }
+  box.innerHTML = meses.map((m) => {
+    const open = bankState.abierto === m.mes;
+    return '<div class="month-acc"><button data-month="' + m.mes + '" aria-expanded="' + open + '"' +
+      ' aria-controls="mb-' + m.mes + '">' +
+      '<span>' + esc(m.etiqueta) + '</span><span class="cnt">' + m.lineas + ' líneas</span>' +
+      '<span class="chev" aria-hidden="true">›</span></button>' +
+      '<div class="month-body" id="mb-' + m.mes + '" data-monthbody="' + m.mes + '"' +
+      (open ? '' : ' hidden') + '></div></div>';
+  }).join('');
+  if (bankState.abierto && meses.some((m) => m.mes === bankState.abierto))
+    await renderExtracto(b, bankState.abierto, bankState.pagina);
+}
+
+async function renderExtracto(b, mes, pagina) {
+  const cont = document.querySelector('[data-monthbody="' + mes + '"]');
+  if (!cont) return;
+  cont.innerHTML = '<p class="desc">Cargando líneas…</p>';
+  let res;
+  try {
+    res = await Api.bancoExtracto(b.cuenta_id, { mes, pagina, limite: 50 });
+  } catch (e) {
+    cont.innerHTML = '<p class="form-err">No se pudo cargar: ' + esc(e.message) + '</p>';
+    return;
+  }
+  const filas = res.rows.map((r) =>
+    '<tr><td class="num">' + fmtFecha(r.fecha) + '</td>' +
+    '<td>' + esc(r.referencia || '—') + '</td>' +
+    '<td>' + esc(r.descripcion) + '</td>' +
+    '<td class="amount' + (r.monto < 0 ? ' neg' : '') + '">' + fmtUSD2.format(r.monto) + '</td>' +
+    '<td class="amount">' + (r.saldo === null || r.saldo === undefined
+      ? '—' : fmtUSD2.format(r.saldo)) + '</td></tr>').join('');
+  cont.innerHTML = '<div style="overflow-x:auto"><table class="tbl" aria-label="Estado de cuenta de ' +
+    esc(b.banco) + ' · ' + esc(mes) + '">' +
+    '<thead><tr><th>Fecha</th><th>Referencia</th><th>Descripción</th>' +
+    '<th class="amount">Monto</th><th class="amount">Saldo</th></tr></thead>' +
+    '<tbody>' + filas + '</tbody></table></div>' +
+    '<div class="pager"><button class="btn ghost" data-mprev' +
+    (res.pagina <= 1 ? ' disabled' : '') + '>← Anterior</button>' +
+    '<span>Página ' + res.pagina + ' de ' + res.paginas + ' · ' + res.total + ' líneas</span>' +
+    '<button class="btn ghost" data-mnext' +
+    (res.pagina >= res.paginas ? ' disabled' : '') + '>Siguiente →</button></div>';
+}
+
+function bancoActivo() {
+  return (bankState.lista || []).find((x) => x.cuenta_id === bankState.activo) || null;
 }
 
 async function renderEntidades() {
@@ -615,105 +722,18 @@ async function renderEntidades() {
   });
   const body = $('#entBody');
   if (entTab === 'banco') {
-    const cuentas = await Api.cuentas();
-    const { rows } = await Api.movimientos({ page: 1, limit: 500 });
-    const info = {};
-    for (const m of rows) {
-      const b = info[m.banco] || (info[m.banco] = { ing: 0, egr: 0, n: 0, ultimo: '', ultimos: [], pend: 0 });
-      if (m.status === 'realizado') {
-        b[m.tipo === 'ingreso' ? 'ing' : 'egr'] += m.valor_usd;
-        b.n++;
-        if (!b.ultimo || m.fecha_pago > b.ultimo) b.ultimo = m.fecha_pago;
-        b.ultimos.push(m);
-      } else {
-        b.pend++;
-      }
-    }
-    Object.values(info).forEach((b) => {
-      b.ultimos.sort((a, c) => a.fecha_pago < c.fecha_pago ? 1 : -1);
-      b.ultimos = b.ultimos.slice(0, 5);
-    });
-    const saldoIni = (c) => +(c.saldo_apertura_usd || c.saldo_inicial_usd || 0);
-    const saldoCta = (c) => {
-      const v = info[c.banco] || { ing: 0, egr: 0 };
-      return saldoIni(c) + v.ing - v.egr;
-    };
-    const totalSaldo = cuentas.reduce((s, c) => s + saldoCta(c), 0);
-    const max = Math.max(1, ...cuentas.map((c) => {
-      const v = info[c.banco] || { ing: 0, egr: 0 };
-      return v.ing + v.egr;
-    }));
-    const cards = '<div class="bank-cards"><div class="kpi hero"><div class="kpi-top">' +
-      '<span class="kpi-label">Saldo total en bancos</span></div>' +
-      '<div class="kpi-val">' + fmtUSD.format(totalSaldo) + '</div>' +
-      '<div class="kpi-sub">' + cuentas.length + ' cuentas · apertura 31-jul + realizado</div></div>' +
-      '<div class="kpi" id="cuadreKpi"><div class="kpi-top"><span class="kpi-label">Cuadre agosto 2026</span></div>' +
-      '<div class="kpi-val">…</div>' +
-      '<div class="kpi-sub">Comparando con los cortes bancarios…</div></div></div>';
-    try {
-      const cuadro = await Api.cuadre('2026-08');
-      const t = cuadro.total;
-      const ok = cuadro.cuadra;
-      $('#cuadreKpi').innerHTML = '<div class="kpi-top"><span class="kpi-label">Cuadre agosto 2026</span></div>' +
-        '<div class="kpi-val"><span class="' + (ok ? 'pos' : 'neg') + '">' + fmtUSD.format(t.diferencia) + '</span></div>' +
-        '<div class="kpi-sub">' + (ok ? 'App y bancos coinciden al cierre.' :
-          'App ' + fmtUSD.format(t.calculado) + ' vs bancos ' + fmtUSD.format(t.banco_dice)) + '</div>';
-    } catch (e) { /* mock sin cuadre */ }
-    body.innerHTML = cards + '<div style="overflow-x:auto"><table class="tbl"><thead><tr>' +
-      '<th>Banco</th><th class="amount">Apertura 31-jul</th><th>Movimientos</th><th class="amount">Ingresado</th>' +
-      '<th class="amount">Pagado</th><th class="amount">En app</th><th class="amount">Dice el banco</th>' +
-      '<th class="amount">Diferencia</th><th>Volumen</th><th></th></tr></thead><tbody>' +
-      cuentas.map((c) => {
-        const v = info[c.banco] || { ing: 0, egr: 0, n: 0, ultimo: '', ultimos: [], pend: 0 };
-        const pct = Math.round(((v.ing + v.egr) / max) * 100);
-        const saldo = saldoCta(c);
-        const dice = (c.banco_dice === null || c.banco_dice === undefined) ? '—' : fmtUSD.format(c.banco_dice);
-        const dif = (c.diferencia === null || c.diferencia === undefined) ? '—'
-          : '<span class="' + (c.diferencia === 0 ? 'pos' : 'neg') + '">' + fmtUSD.format(c.diferencia) + '</span>';
-        const aviso = c.aviso ? '<small style="color:var(--warn, #b7791f)"> · ' + esc(c.aviso) + '</small>' : '';
-        const ultimos = v.ultimos.map((m) =>
-          '<tr><td class="num">' + fmtFecha(m.fecha_pago) + '</td><td>' + esc(m.entidad || '(sin entidad)') +
-          '<small> · ' + esc(m.concepto_pago || '') + '</small></td>' +
-          '<td class="amount ' + (m.tipo === 'ingreso' ? 'pos' : 'neg') + '">' +
-          (m.tipo === 'ingreso' ? '+' : '−') + fmtUSD.format(m.valor_usd) + '</td></tr>').join('');
-        return '<tr><td><div class="ent"><span class="ent-ico" style="background:#f0f5fa;color:#477291">' +
-          ICO_BANK + '</span><span>' + esc(c.banco) +
-          '<small>' + esc(c.numero || 'Sin número') + aviso + '</small></span></div></td>' +
-          '<td class="amount">' + fmtUSD.format(saldoIni(c)) + '</td>' +
-          '<td class="num">' + v.n + '</td>' +
-          '<td class="amount pos">+' + fmtUSD.format(v.ing) + '</td>' +
-          '<td class="amount neg">−' + fmtUSD.format(v.egr) + '</td>' +
-          '<td class="amount' + (saldo < 0 ? ' neg' : '') + '">' + fmtUSD.format(saldo) + '</td>' +
-          '<td class="amount">' + dice + '</td>' +
-          '<td class="amount">' + dif + '</td>' +
-          '<td><div class="vol" role="img" aria-label="Volumen ' + pct + '%"><i style="width:' + pct + '%"></i></div></td>' +
-          '<td><div class="row-actions"><button class="icon-btn" data-q="' + esc(c.banco) + '">Ver movimientos</button></div></td></tr>' +
-          '<tr class="stmt-row"><td colspan="10"><details class="stmt" data-estado="placeholder">' +
-          '<summary>Ver saldo y estado resumido' + (v.ultimo ? ' · último ' + fmtFecha(v.ultimo) : '') +
-          (v.pend ? ' · ' + v.pend + ' pendiente(s)' : '') + '</summary>' +
-          '<div class="stmt-body">' +
-          (v.n
-            ? '<div style="overflow-x:auto"><table class="tbl"><tbody>' + ultimos + '</tbody></table></div>' +
-              (v.pend ? '<p class="desc">' + v.pend + ' movimiento(s) pendiente(s)/aplazado(s) no suman al saldo.</p>' : '') +
-              (c.tiene_extracto && c.fecha_corte
-                ? '<p class="desc">Conciliado con el estado de cuenta al ' + fmtFecha(c.fecha_corte) +
-                  ' (cierra en ' + fmtUSD.format(c.banco_dice) + ').</p>' : '')
-            : c.aviso
-              ? '<p class="desc">' + esc(c.aviso) + '</p>'
-              : '<p class="desc">Sin estados de cuenta cargados para ' + esc(c.banco) +
-                ' — aquí aparecerá el resumen cuando importes tus estados de cuenta.</p>') +
-          '</div></details></td></tr>';
-      }).join('') + '</tbody></table></div>';
+    await renderBancos(body);
     return;
   }
   const rows = await resumenEntidades(await Api.entidades(entTab), entTab);
   const esCli = entTab === 'cliente';
   body.innerHTML = rows.length ? '<div style="overflow-x:auto"><table class="tbl"><thead><tr>' +
-    '<th>' + (esCli ? 'Cliente' : 'Proveedor') + '</th><th>Movimientos</th>' +
+    '<th>' + (esCli ? 'Cliente' : 'Proveedor') + '</th><th>Concepto</th><th>Movimientos</th>' +
     '<th class="amount">' + (esCli ? 'Cobrado' : 'Pagado') + '</th><th>Último</th><th></th></tr></thead><tbody>' +
     rows.map((e) =>
       '<tr><td><div class="ent"><span class="ent-ico ' + (esCli ? 'in' : 'out') + '">' + ICO_BUILDING + '</span>' +
       '<span>' + esc(e.nombre) + '</span></div></td>' +
+      '<td>' + esc(e.concepto || '—') + '</td>' +
       '<td class="num">' + e.movimientos + '</td>' +
       '<td class="amount ' + (e.total_usd < 0 ? 'neg' : '') + '">' + fmtUSD.format(Math.abs(e.total_usd)) + '</td>' +
       '<td class="num">' + (e.ultimo === '—' ? '—' : fmtFecha(e.ultimo)) + '</td>' +
@@ -723,26 +743,263 @@ async function renderEntidades() {
       '<p>Aparecerán solos al guardar movimientos con entidad.</p></div>';
 }
 
+/* ===== CARGA DE ARCHIVOS (RF-23: formulario + validación previa + lote) =====
+   Un campo por fuente; los vacíos se ignoran. Si algún campo falla la
+   validación, no se ejecuta ningún ETL (sin importación parcial). */
+const CAMPOS_CARGA = ['pichincha', 'internacional', 'produbanco', 'cxc'];
+const NOMBRE_CAMPO = { pichincha: 'Pichincha', internacional: 'Internacional',
+  produbanco: 'Produbanco', cxc: 'CxC / CxP' };
+const importState = { archivos: { pichincha: null, internacional: null,
+  produbanco: null, cxc: null }, validados: null };
+
+function fmtSize(n) {
+  if (!n && n !== 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+
+function openImport() {
+  importState.validados = null;
+  $('#importPreview').hidden = true;
+  $('#importConfirm').hidden = true;
+  $('#importValidate').hidden = false;
+  $('#importErr').hidden = true;
+  clearFieldErrors();
+  refreshImportChips();
+  $('#importOverlay').hidden = false;
+  const first = document.querySelector('[data-drop="pichincha"]');
+  if (first) first.focus();
+}
+
+function closeImport() {
+  $('#importOverlay').hidden = true;
+}
+
+function setFieldError(campo, motivo) {
+  const wrap = document.querySelector('.import-field[data-field="' + campo + '"]');
+  const help = document.querySelector('[data-help="' + campo + '"]');
+  if (wrap) wrap.classList.add('invalid');
+  if (help) { help.textContent = motivo; help.hidden = false; }
+}
+
+function clearFieldErrors() {
+  document.querySelectorAll('.import-field.invalid')
+    .forEach((el) => el.classList.remove('invalid'));
+  document.querySelectorAll('[data-help]').forEach((el) => { el.hidden = true; el.textContent = ''; });
+}
+
+function ponerArchivo(campo, file) {
+  if (!file) return;
+  importState.archivos[campo] = file;
+  importState.validados = null;
+  $('#importPreview').hidden = true;
+  $('#importConfirm').hidden = true;
+  $('#importValidate').hidden = false;
+  const wrap = document.querySelector('.import-field[data-field="' + campo + '"]');
+  const help = document.querySelector('[data-help="' + campo + '"]');
+  if (wrap) wrap.classList.remove('invalid');
+  if (help) { help.hidden = true; help.textContent = ''; }
+  // Si el Excel trae varias hojas, el backend devuelve el selector (RF-ETL-01).
+  if (campo === 'cxc') {
+    document.querySelector('[data-sheetwrap="cxc"]').hidden = true;
+    document.querySelector('[data-sheet="cxc"]').innerHTML = '';
+  }
+  refreshImportChips();
+}
+
+function quitarArchivo(campo) {
+  importState.archivos[campo] = null;
+  importState.validados = null;
+  $('#importPreview').hidden = true;
+  $('#importConfirm').hidden = true;
+  $('#importValidate').hidden = false;
+  const input = document.querySelector('[data-input="' + campo + '"]');
+  if (input) input.value = '';
+  if (campo === 'cxc') {
+    document.querySelector('[data-sheetwrap="cxc"]').hidden = true;
+    document.querySelector('[data-sheet="cxc"]').innerHTML = '';
+  }
+  refreshImportChips();
+}
+
+function refreshImportChips() {
+  let n = 0;
+  for (const campo of CAMPOS_CARGA) {
+    const f = importState.archivos[campo];
+    const chip = document.querySelector('[data-chip="' + campo + '"]');
+    if (!chip) continue;
+    if (!f) { chip.hidden = true; chip.innerHTML = ''; continue; }
+    n++;
+    chip.hidden = false;
+    chip.innerHTML = '<span class="fname">' + esc(f.name) + '</span>' +
+      '<span class="fsize">' + fmtSize(f.size) + '</span>' +
+      '<button type="button" class="icon-btn danger" data-unfile="' + campo + '"' +
+      ' aria-label="Quitar archivo de ' + esc(NOMBRE_CAMPO[campo]) + '">✕</button>';
+  }
+  $('#importValidate').disabled = n === 0;
+}
+
+async function doValidate() {
+  clearFieldErrors();
+  $('#importErr').hidden = true;
+  $('#importPreview').hidden = true;
+  $('#importConfirm').hidden = true;
+  $('#importValidate').hidden = false;
+  const btn = $('#importValidate');
+  btn.disabled = true;
+  btn.textContent = 'Validando…';
+  try {
+    const res = await Api.validarCarga(importState.archivos);
+    const resultados = res.resultados || [];
+    const cxc = resultados.find((r) => r.campo === 'cxc');
+    if (cxc && cxc.hojas && cxc.hojas.length > 1) {
+      const sel = document.querySelector('[data-sheet="cxc"]');
+      sel.innerHTML = cxc.hojas.map((h) => '<option>' + esc(h) + '</option>').join('');
+      document.querySelector('[data-sheetwrap="cxc"]').hidden = false;
+    }
+    if (!res.ok) {
+      for (const r of resultados) {
+        if (!r.ok) {
+          setFieldError(r.campo, r.motivo);
+          toast(r.motivo, 'err');
+        }
+      }
+      const e = $('#importErr');
+      e.textContent = 'Revisa los campos marcados: ningún archivo se importó. Corrige y vuelve a validar.';
+      e.hidden = false;
+      return;
+    }
+    importState.validados = resultados;
+    $('#importPreview').innerHTML = '<b>Verificación correcta.</b> Revisa y confirma para importar:' +
+      '<table>' + resultados.map((r) =>
+        '<tr><td>' + esc(NOMBRE_CAMPO[r.campo] || r.campo) + '</td>' +
+        '<td>' + esc(r.motivo || 'verificado') + '</td></tr>').join('') + '</table>';
+    $('#importPreview').hidden = false;
+    $('#importConfirm').hidden = false;
+    $('#importValidate').hidden = true;
+    toast('Validación correcta · revisa y confirma la importación', 'ok');
+  } catch (err) {
+    const resultados = err.resultados || [];
+    if (resultados.length) {
+      for (const r of resultados) {
+        if (!r.ok) {
+          setFieldError(r.campo, r.motivo);
+          toast(r.motivo, 'err');
+        }
+      }
+      const e = $('#importErr');
+      e.textContent = 'Revisa los campos marcados: ningún archivo se importó. Corrige y vuelve a validar.';
+      e.hidden = false;
+    } else {
+      const e = $('#importErr');
+      e.textContent = 'No se pudo validar: ' + err.message;
+      e.hidden = false;
+      toast('No se pudo validar: ' + err.message, 'err');
+    }
+  } finally {
+    btn.disabled = Object.values(importState.archivos).every((f) => !f);
+    btn.textContent = 'Validar y continuar';
+  }
+}
+
+async function doConfirmImport(ev) {
+  ev.preventDefault();
+  const btn = $('#importConfirm');
+  btn.disabled = true;
+  btn.textContent = 'Importando…';
+  const hoja = document.querySelector('[data-sheet="cxc"]');
+  const hojaCxc = (hoja && !hoja.closest('[hidden]')) ? hoja.value : '';
+  try {
+    const r = await Api.importarLote(importState.archivos, hojaCxc || '');
+    const det = (r.archivos || []).map((a) =>
+      a.banco ? a.banco + ': ' + (a.lineas_nuevas || 0) + ' líneas nuevas'
+      : 'CxC: ' + (a.filas_ok || 0) + ' filas').join(' · ');
+    const dup = r.duplicadas ? ' · ' + r.duplicadas + ' duplicadas ignoradas' : '';
+    const errN = (r.errores || []).length;
+    closeImport();
+    // Las vistas leen saldos precalculados: invalidar cachés del front.
+    flujoState.weeks = null;
+    flujoState.weekCache = {};
+    flujoState.dataEnd = null;
+    if (errN) toast('Importado con ' + errN + ' avisos: ' + det + dup, 'warn');
+    else toast('Importación lista: ' + det + dup, 'ok');
+    route();
+  } catch (err) {
+    const e = $('#importErr');
+    e.textContent = err.message || 'No se pudo importar (no se guardó nada).';
+    e.hidden = false;
+    toast(e.textContent, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirmar e importar';
+  }
+}
+
+function initImportForm() {
+  for (const campo of CAMPOS_CARGA) {
+    const zone = document.querySelector('[data-drop="' + campo + '"]');
+    const input = document.querySelector('[data-input="' + campo + '"]');
+    if (!zone || !input) continue;
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('over');
+      if (e.dataTransfer.files.length) ponerArchivo(campo, e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', () => {
+      if (input.files.length) ponerArchivo(campo, input.files[0]);
+    });
+  }
+  $('#importForm').addEventListener('click', (e) => {
+    const q = e.target.closest('[data-unfile]');
+    if (q) quitarArchivo(q.dataset.unfile);
+  });
+  $('#importValidate').addEventListener('click', doValidate);
+  $('#importForm').addEventListener('submit', doConfirmImport);
+  $('#importCancel').addEventListener('click', closeImport);
+  $('#importOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'importOverlay') closeImport();
+  });
+}
+
 /* ===== CONFIGURACIÓN (estado + logs + recursos + zona de peligro RN-13) ===== */
 async function renderConfig() {
   let n = '?';
   try { n = (await Api.estado()).movimientos; } catch (e) { /* sin backend */ }
   $('#cfgInfo').textContent = 'Hay ' + n + ' movimientos cargados en este momento.';
   $('#cfgErr').hidden = true;
-  // Contador de bitácora con filtros actuales
   try {
     const r = await Api.bitacora({ ...logFiltros(), limit: 1 });
     $('#logCount').textContent = 'Hay ' + r.total + ' eventos con estos filtros.';
   } catch (e) { $('#logCount').textContent = 'Bitácora disponible con backend.'; }
   $('#logErr').hidden = true;
-  // Recursos: último Excel cargado
   try {
     const rec = await Api.recursos();
     const u = rec && rec.ultimo_excel;
-    $('#recInfo').textContent = u
-      ? 'Último libro: ' + u.archivo + ' · ' + u.fecha.replace('T', ' ').slice(0, 19) +
+    const head = u
+      ? 'Último libro: ' + esc(u.archivo) + ' · ' + String(u.fecha || '').replace('T', ' ').slice(0, 19) +
         ' · ' + u.filas_ok + ' filas ok, ' + u.filas_error + ' con error.'
-      : 'Aún no se ha importado ningún Excel en esta base.';
+      : 'Aún no se ha importado ningún archivo en esta base.';
+    const hist = (rec && rec.historial) || [];
+    $('#recInfo').innerHTML = esc(head) + (hist.length > 1
+      ? '<details class="stmt" style="margin-top:8px"><summary>Historial de archivos cargados (' +
+        hist.length + ')</summary><div class="stmt-body"><table class="tbl"><thead><tr>' +
+        '<th>Archivo</th><th>Tipo</th><th>Fecha</th><th class="amount">OK</th>' +
+        '<th class="amount">Errores</th></tr></thead><tbody>' +
+        hist.map((h) =>
+          '<tr><td>' + esc(h.archivo) + '</td><td>' + esc(h.tipo) +
+          (h.banco ? ' · ' + esc(h.banco) : '') + '</td>' +
+          '<td class="num">' + String(h.fecha || '').replace('T', ' ').slice(0, 19) + '</td>' +
+          '<td class="amount pos">' + h.filas_ok + '</td>' +
+          '<td class="amount' + (h.filas_error ? ' neg' : '') + '">' + h.filas_error + '</td></tr>'
+        ).join('') + '</tbody></table></div></details>'
+      : '');
   } catch (e) { $('#recInfo').textContent = 'Recursos disponibles con backend.'; }
 }
 function logFiltros() {
@@ -832,14 +1089,12 @@ async function poblarAnios() {
     } catch (e) { /* sin datos */ }
   }
   if (!years.length) years = [new Date().toISOString().slice(0, 4)];
-  // Dashboard: Todos + años
   const dash = $('#fAnioDash');
   const prevD = state.anio || '';
   dash.innerHTML = '<option value="">Todos</option>' +
     years.map((y) => '<option value="' + y + '">' + y + '</option>').join('');
   dash.value = years.includes(prevD) ? prevD : '';
   state.anio = dash.value;
-  // Flujo mensual: solo años (sin Todos); conserva selección o usa el último
   const fan = $('#fAnio');
   const prevF = flujoState.anio;
   fan.innerHTML = years.map((y) => '<option value="' + y + '">' + y + '</option>').join('');
@@ -864,17 +1119,32 @@ function init() {
     location.hash = '#/movimientos';
     renderMovimientos();
   });
-  $('#fEscenario').addEventListener('change', (e) => { state.escenario = e.target.value; renderDashboard(); });
-  $('#fAnioDash').addEventListener('change', (e) => { state.anio = e.target.value; renderDashboard(); });
-  $('#fHorizonte').addEventListener('change', (e) => { state.horizonte = +e.target.value; renderDashboard(); });
+  $('#btnAplicarDash').addEventListener('click', () => {
+    state.anio = $('#fAnioDash').value;
+    state.horizonte = +$('#fHorizonte').value;
+    renderDashboard().catch((e) => { console.error(e); toast('Error al cargar el dashboard'); });
+  });
   $('#btnMovimiento').addEventListener('click', () => openModal());
   $('#btnNewMov').addEventListener('click', () => openModal());
-  // Filtros + paginación Movimientos
-  const refetch = () => { movState.page = 1; renderMovimientos(); };
-  $('#mTipo').addEventListener('change', (e) => { movState.tipo = e.target.value; refetch(); });
-  $('#mStatus').addEventListener('change', (e) => { movState.status = e.target.value; refetch(); });
-  let qT; $('#mQ').addEventListener('input', (e) => {
-    clearTimeout(qT); qT = setTimeout(() => { movState.q = e.target.value.trim(); refetch(); }, 250);
+  $('#btnCargarEnt').addEventListener('click', openImport);
+  // Si el logo falta, Landmark + nombre como respaldo (RF-25).
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img && img.tagName === 'IMG' && img.classList.contains('bank-logo')) {
+      const s = document.createElement('span');
+      s.className = 'bank-fallback';
+      s.innerHTML = ICO_BANK + '<span>' + esc(img.alt || 'Banco') + '</span>';
+      img.replaceWith(s);
+    }
+  }, true);
+
+  // Filtros + paginación Movimientos (se aplican con el botón)
+  $('#btnAplicarMov').addEventListener('click', () => {
+    movState.tipo = $('#mTipo').value;
+    movState.status = $('#mStatus').value;
+    movState.q = $('#mQ').value.trim();
+    movState.page = 1;
+    renderMovimientos().catch((e) => { console.error(e); toast('Error al cargar movimientos'); });
   });
   $('#movPrev').addEventListener('click', () => { if (movState.page > 1) { movState.page--; renderMovimientos(); } });
   $('#movNext').addEventListener('click', () => { movState.page++; renderMovimientos(); });
@@ -901,9 +1171,11 @@ function init() {
       }
     }
   });
+
   // Modal
   $('#movCancel').addEventListener('click', closeModal);
   $('#movOverlay').addEventListener('click', (e) => { if (e.target.id === 'movOverlay') closeModal(); });
+  
   // Detalle de movimiento (subfilas de Flujo)
   $('#detailClose').addEventListener('click', closeDetail);
   $('#detailOverlay').addEventListener('click', (e) => { if (e.target.id === 'detailOverlay') closeDetail(); });
@@ -920,15 +1192,45 @@ function init() {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#movOverlay').hidden) closeModal();
+    if (e.key === 'Escape' && !$('#importOverlay').hidden) closeImport();
     if (e.key === 'Escape' && !$('#detailOverlay').hidden) closeDetail();
     if (e.key === 'Escape' && !$('#notifOverlay').hidden) closeNotif();
     if (e.key === 'Escape' && $('#movOverlay').hidden && $('#view-flujo').classList.contains('active')) clearSel();
   });
   $('#movForm').addEventListener('submit', submitModal);
+  initImportForm();
+
   // Entidades: tabs + salto a movimientos filtrados
   document.querySelectorAll('.tab').forEach((t) =>
     t.addEventListener('click', () => { entTab = t.dataset.tab; renderEntidades(); }));
-  $('#entBody').addEventListener('click', (e) => {
+  $('#entBody').addEventListener('click', async (e) => {
+    const imp = e.target.closest('[data-open-import]');
+    if (imp) { openImport(); return; }
+    const tab = e.target.closest('[data-banktab]');
+    if (tab) {
+      bankState.activo = +tab.dataset.banktab;
+      bankState.abierto = null;
+      bankState.pagina = 1;
+      renderEntidades();
+      return;
+    }
+    const mo = e.target.closest('[data-month]');
+    if (mo) {
+      const mes = mo.dataset.month;
+      bankState.abierto = bankState.abierto === mes ? null : mes;
+      bankState.pagina = 1;
+      renderEntidades();
+      return;
+    }
+    if (e.target.closest('[data-mprev]') || e.target.closest('[data-mnext]')) {
+      const b = bancoActivo();
+      if (!b || !bankState.abierto) return;
+      bankState.pagina += e.target.closest('[data-mprev]') ? -1 : 1;
+      await renderExtracto(b, bankState.abierto, bankState.pagina);
+      const cont = document.querySelector('[data-monthbody="' + bankState.abierto + '"]');
+      if (cont) cont.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     const b = e.target.closest('[data-q]');
     if (!b) return;
     movState.q = b.dataset.q; movState.page = 1;
@@ -936,6 +1238,7 @@ function init() {
     location.hash = '#/movimientos';
     renderMovimientos();
   });
+
   // Bienvenida RF-14
   $('#wEmpty').addEventListener('click', async () => {
     try {
@@ -948,17 +1251,37 @@ function init() {
   });
   $('#wImport').addEventListener('click', async () => {
     const f = $('#wFile').files[0];
-    if (!f) { wError('Selecciona primero tu archivo .xlsx.'); return; }
-    if (typeof Api.importar !== 'function') {
-      wError('La importación Excel vive en el backend (ver backend/README.md). Por ahora usa Iniciar vacío.');
-      return;
-    }
+    if (!f) { wError('Selecciona primero tu archivo (.xlsx, .xls o .csv).'); return; }
+    const hoja = ($('#wHoja')?.value || '').trim();
     try {
-      const r = await Api.importar(f);
-      $('#welcomeOverlay').hidden = true;
-      toast('Importadas ' + r.filas_ok + ' filas · bienvenido al Dashboard');
-      route();
-    } catch (err) { wError('No se pudo importar: ' + err.message); }
+      const p = await Api.previewImportar(f, hoja);
+      const box = $('#wPreview');
+      const adv = (p.advertencias || []).slice(0, 8).map((a) =>
+        '<li>fila ' + a.fila + ' · ' + esc((a.avisos || []).join('; ').slice(0, 140)) +
+        (a.duplicada ? ' <b>(duplicada)</b>' : '') + '</li>').join('');
+      const err = (p.erroneas || []).slice(0, 8).map((e) =>
+        '<li>fila ' + e.fila + ' · ' + esc((e.errores || []).join('; ').slice(0, 140)) + '</li>').join('');
+      box.innerHTML = '<div class="review-card"><b>' + p.total + ' filas</b> en hoja ' +
+        esc(p.hoja || '') + ' (' + esc(p.header || '') + '): ' +
+        '<span class="pos">' + p.validas.length + ' válidas</span> · ' +
+        '<span>' + p.advertencias.length + ' con avisos</span> (' + (p.duplicadas || 0) + ' duplicadas) · ' +
+        '<span class="neg">' + (p.erroneas || []).length + ' con error</span>' +
+        (adv ? '<ul>' + adv + '</ul>' : '') +
+        (err ? '<p class="neg">Descartadas (tipo inválido):</p><ul>' + err + '</ul>' : '') +
+        '<button class="btn primary" id="wConfirm" style="width:100%;justify-content:center;margin-top:8px">' +
+        'Confirmar e importar ' + (p.validas.length + p.advertencias.length) + ' filas</button></div>';
+      $('#wErr').hidden = true;
+      $('#wConfirm').addEventListener('click', async () => {
+        try {
+          const r = await Api.importar(f, hoja);
+          $('#welcomeOverlay').hidden = true;
+          toast('Importadas ' + r.filas_ok + ' filas'
+            + (r.duplicadas ? ' · ' + r.duplicadas + ' duplicadas ignoradas' : '')
+            + ' · bienvenido al Dashboard');
+          route();
+        } catch (err2) { wError('No se pudo importar: ' + err2.message); }
+      }, { once: true });
+    } catch (err) { wError('No se pudo previsualizar: ' + err.message); }
   });
   $('#wTemplate').addEventListener('click', async () => {
     if (await Api.modo() === 'real') {
@@ -968,17 +1291,15 @@ function init() {
     }
     wError('La plantilla se descarga del backend (GET /api/plantilla). Por ahora usa Iniciar vacío.');
   });
-  // Configuración: exportar logs .txt (respeta filtros) + plantilla + contador
+
+  // Configuración
   const refreshLogCount = async () => {
     try {
       const r = await Api.bitacora({ ...logFiltros(), limit: 1 });
       $('#logCount').textContent = 'Hay ' + r.total + ' eventos con estos filtros.';
     } catch (e) { /* sin backend */ }
   };
-  ['logDesde', 'logHasta', 'logAccion'].forEach((id) =>
-    $('#' + id).addEventListener('change', refreshLogCount));
-  let logT;
-  $('#logQ').addEventListener('input', () => { clearTimeout(logT); logT = setTimeout(refreshLogCount, 250); });
+  $('#btnAplicarLogs').addEventListener('click', refreshLogCount);
   $('#btnLogsTxt').addEventListener('click', async () => {
     const err = $('#logErr');
     err.hidden = true;
@@ -996,7 +1317,6 @@ function init() {
     }
     toast('La plantilla se descarga con backend activo');
   });
-  // Configuración: borrado total con clave de administrador (RN-13)
   $('#btnBorrar').addEventListener('click', async () => {
     const err = $('#cfgErr');
     err.hidden = true;
@@ -1014,6 +1334,7 @@ function init() {
       checkBienvenida();
     } catch (e) { err.textContent = e.message; err.hidden = false; }
   });
+
   checkBienvenida();
   $('#menuBtn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
   $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
@@ -1027,6 +1348,7 @@ function init() {
     b.setAttribute('title', min ? 'Expandir barra lateral' : 'Colapsar barra lateral');
     b.setAttribute('aria-expanded', String(!min));
   });
+
   // Filtros Vista de Flujo
   const syncFlujoInputs = () => {
     $('#wDesde').hidden = flujoState.modo !== 'diario';
@@ -1034,13 +1356,17 @@ function init() {
     $('#wAnio').hidden = flujoState.modo !== 'mensual';
   };
   $('#fModo').addEventListener('change', (e) => {
-    flujoState.modo = e.target.value; syncFlujoInputs(); renderFlujo();
+    flujoState.modo = e.target.value; syncFlujoInputs();
   });
-  $('#fDesde').addEventListener('change', (e) => {
-    flujoState.desde = e.target.value; flujoState.weeks = null; renderFlujo();
+  $('#btnAplicarFlujo').addEventListener('click', () => {
+    flujoState.modo = $('#fModo').value;
+    flujoState.desde = $('#fDesde').value;
+    flujoState.mes = $('#fMes').value;
+    flujoState.anio = $('#fAnio').value;
+    flujoState.weeks = null;
+    syncFlujoInputs();
+    renderFlujo().catch((e) => { console.error(e); toast('Error al cargar la matriz'); });
   });
-  $('#fMes').addEventListener('change', (e) => { flujoState.mes = e.target.value; renderFlujo(); });
-  $('#fAnio').addEventListener('change', (e) => { flujoState.anio = e.target.value; renderFlujo(); });
   $('#matrix').addEventListener('click', (e) => {
     const b = e.target.closest('[data-exp]');
     if (b) {
@@ -1051,7 +1377,6 @@ function init() {
     }
     const det = e.target.closest('[data-detail]');
     if (det) { openDetail(det.dataset.detail); return; }
-    // Selección tipo Excel: celda, columna (encabezado) o fila (concepto)
     const tbl = $('#matrix');
     if (!tbl.tHead) return;
     const headCells = [...tbl.tHead.rows[0].cells];
@@ -1069,7 +1394,7 @@ function init() {
       paintSel(bodyRows.indexOf(tr), [...tr.cells].indexOf(td) - 1);
     }
   });
-  // Scroll infinito diario: anexar al acercarse al borde derecho
+
   $('#matrixWrap').addEventListener('scroll', (e) => {
     if (!$('#view-flujo').classList.contains('active') || flujoState.modo !== 'diario') return;
     const w = e.target;
