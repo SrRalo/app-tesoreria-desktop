@@ -138,18 +138,19 @@ def previsualizar(excel_path: Path, db_path: Path, hoja: str | None = None,
             tipo = norm["tipo"]
             ent_id, av_e = resolver_entidad(
                 cat, norm["entidad"], "cliente" if tipo == "ingreso" else "proveedor")
-            cta_id, av_c = resolver_cuenta(cat, norm["banco"])
-            _con_id, av_k = resolver_concepto(cat, norm["concepto"])
+            # v4: sin cuenta_id; se resuelve solo para aviso (no se guarda).
+            _cta_id, av_c = resolver_cuenta(cat, norm["banco"])
+            con_id, av_k = resolver_concepto(cat, norm["concepto"])
             avisos += [a for a in (av_e, av_c, av_k) if a]
-            clave = (norm["fecha_pago"], tipo, norm["valor"], cta_id, norm["entidad"][:40])
+            clave = (norm["fecha_pago"], tipo, norm["valor"], con_id, (norm["entidad"] or "")[:40])
             dup = clave in vistos
             vistos.add(clave)
             # chequeo en BD (1 query por fila, solo en preview limitado)
             if not dup:
                 hay = con.execute(
                     "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=?"
-                    " AND cuenta_id=? AND valor_usd=? LIMIT 1",
-                    (norm["fecha_pago"], tipo, cta_id, norm["valor"])).fetchone()
+                    " AND concepto_id=? AND valor_usd=? LIMIT 1",
+                    (norm["fecha_pago"], tipo, con_id, norm["valor"])).fetchone()
                 dup = bool(hay)
             item = {"fila": norm["_fila"], "fecha": norm["fecha_pago"],
                     "tipo": tipo, "valor": norm["valor"], "avisos": avisos}
@@ -217,16 +218,19 @@ def importar(excel_path: Path, db_path: Path, nombre_original: str | None = None
             tipo = norm["tipo"]
             ent_id, av_e = resolver_entidad(
                 cat, norm["entidad"], "cliente" if tipo == "ingreso" else "proveedor")
-            # cta_id, av_c = resolver_cuenta(cat, norm["banco"])
-        con_id, av_k = resolver_concepto(cat, norm["concepto"])
-        for a in (av_e, av_k): # ignoramos av_c
-            if a:
-                avisos.append(f"fila {norm['_fila']}: {a}")
+            # v4: movimientos ya no tiene cuenta_id; se resuelve solo para
+            # aviso + trazabilidad BANCO-ORIG en observación (antipérdida).
+            cta_id, av_c = resolver_cuenta(cat, norm["banco"])
+            con_id, av_k = resolver_concepto(cat, norm["concepto"])
+            for a in (av_e, av_c, av_k):
+                if a:
+                    avisos.append(f"fila {norm['_fila']}: {a}")
             # originales no mapeados -> observación (RF-ETL-08)
             extras = []
             if av_e and norm["entidad"]:
                 extras.append(f"[ENT-ORIG:{norm['entidad'][:80]}]")
-            # BANCO-ORIG eliminado
+            if av_c and norm["banco"]:
+                extras.append(f"[BANCO-ORIG:{norm['banco'][:80]}]")
             if av_k and norm["concepto"]:
                 extras.append(f"[CONCEPTO-ORIG:{norm['concepto'][:80]}]")
             obs = (norm["observacion"] + " " + " ".join(extras)).strip()[:500]

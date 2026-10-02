@@ -45,16 +45,13 @@ def listar_bancos(con: sqlite3.Connection) -> list[dict]:
 def listar_cuentas(con: sqlite3.Connection) -> list[dict]:
     out = []
     # v4: nombre canónico del banco vía JOIN; fallback al texto deprecated.
+    # v4: movimientos ya no tiene cuenta_id (RN-05/09): el saldo por cuenta
+    # es apertura + corte informativo; ing/egr por cuenta quedan en 0.
     sql = ("SELECT c.*, COALESCE(b.nombre, c.banco) AS banco FROM cuentas c"
            " LEFT JOIN bancos b ON b.id = c.banco_id ORDER BY banco")
     for c in con.execute(sql).fetchall():
         c = dict(c)
-        mov = con.execute(
-            "SELECT SUM(CASE WHEN tipo='ingreso' THEN valor_usd ELSE 0 END) ing,"
-            " SUM(CASE WHEN tipo='egreso' THEN valor_usd ELSE 0 END) egr"
-            " FROM movimientos WHERE cuenta_id=? AND status='realizado'",
-            (c["id"],)).fetchone()
-        ing, egr = mov["ing"] or 0, mov["egr"] or 0
+        ing, egr = 0, 0
         apertura = c.get("saldo_apertura_usd") or 0
         corte = con.execute(
             "SELECT saldo_actual, fecha_corte FROM cortes_bancarios"

@@ -76,12 +76,14 @@ def test_etl_crea_concepto_cuenta_y_entidad_nuevos(tmp_path):
             "SELECT 1 FROM cuentas WHERE banco='Banco X'").fetchone() is None
         assert con.execute(
             "SELECT 1 FROM entidades WHERE nombre='Nuevo CLI'").fetchone() is None
+        # v4: movimientos ya no tiene cuenta_id; el fallback es por_definir
+        # y los originales van a observación (ENT/CONCEPTO/BANCO-ORIG).
         row = con.execute(
-            "SELECT m.observacion, c.banco, k.nombre FROM movimientos m "
-            "JOIN cuentas c ON c.id=m.cuenta_id "
+            "SELECT m.observacion, k.nombre FROM movimientos m "
             "JOIN conceptos k ON k.id=m.concepto_id").fetchone()
-        assert row["banco"] == "PorDefinir" and row["nombre"] == "por_definir"
+        assert row["nombre"] == "por_definir"
         assert "BANCO-ORIG" in row["observacion"] and "ENT-ORIG" in row["observacion"]
+        assert "CONCEPTO-ORIG" in row["observacion"]
     finally:
         con.close()
 

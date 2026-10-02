@@ -105,8 +105,12 @@ def crear(con: sqlite3.Connection, d: dict) -> int:
         cta = con.execute("SELECT id FROM cuentas WHERE banco=?",
                           (d.get("banco", ""),)).fetchone()
         if not cta:
-            # v4: temporal hasta eliminarlo totalmente del front
-            pass
+            # v4: movimientos ya no guarda cuenta_id, pero el banco sigue
+            # siendo catálogo cerrado RN-09: rechazar desconocidos.
+            bco = con.execute("SELECT id FROM bancos WHERE nombre=?",
+                              (d.get("banco", ""),)).fetchone()
+            if not bco:
+                raise ErrorValidacion("banco desconocido (RN-09)")
         cur = con.execute(
             "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
             " entidad_id, centro_costo, valor_usd, status, observacion)"

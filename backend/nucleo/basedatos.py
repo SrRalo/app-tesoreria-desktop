@@ -53,7 +53,9 @@ def _dedup_cuentas(con: sqlite3.Connection) -> None:
             # importar/CRUD (recalcular_saldos_cuenta); aquí solo se borran.
             con.execute("DELETE FROM saldos_diarios_cuenta WHERE cuenta_id=?",
                         (perdedora["id"],))
-            for tabla in ("movimientos", "extracto_lineas"):
+            # v4: movimientos ya no tiene cuenta_id (RN-05/09): solo
+            # re-apuntar tablas que aún cuelgan de cuentas.
+            for tabla in ("extracto_lineas",):
                 con.execute(f"UPDATE {tabla} SET cuenta_id=? WHERE cuenta_id=?",
                             (keeper["id"], perdedora["id"]))
             con.execute("DELETE FROM cuentas WHERE id=?", (perdedora["id"],))
