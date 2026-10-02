@@ -38,12 +38,71 @@ def init_vacio(con: sqlite3.Connection, saldo_inicial_usd=0,
         if fecha_inicio:
             con.execute("INSERT OR REPLACE INTO config VALUES ('fecha_inicio',?)",
                         (str(fecha_inicio),))
+        from servicios.bitacora import registrar
+        registrar(con, "INIT_VACIO", "config", None,
+                  f"arranque vacío con saldo {saldo} USD"
+                  + (f" desde {fecha_inicio}" if fecha_inicio else ""),
+                  anterior=None,
+                  nuevo={"saldo_inicial_usd": saldo, "fecha_inicio": fecha_inicio or ""},
+                  origen="UI")
     return {"ok": True}
 
 
-def importar_archivo(xlsx: Path, db: Path) -> dict:
-    res = importar(Path(xlsx), Path(db))
+def previsualizar_archivo(xlsx: Path, db: Path, hoja: str | None = None,
+                         limite: int = 200) -> dict:
+    """Dry-run (RF-ETL-11): clasifica filas sin guardar."""
+    from etl.importar import previsualizar
+    return previsualizar(Path(xlsx), Path(db), hoja=hoja, limite=limite)
+
+
+def importar_archivo(xlsx: Path, db: Path, nombre_original: str | None = None,
+                     hoja: str | None = None) -> dict:
+    from nucleo.basedatos import conectar
+    res = importar(Path(xlsx), Path(db), nombre_original=nombre_original, hoja=hoja)
+    con = conectar(Path(db))
+    try:
+        from servicios.bitacora import registrar
+        registrar(con, "IMPORTAR", "import_log", None,
+                  f"{res.get('archivo', xlsx.name)}: {res['filas_ok']} ok,"
+                  f" {len(res['errores'])} errores",
+                  anterior=None,
+                  nuevo={"archivo": res.get("archivo", xlsx.name),
+                         "filas_ok": res["filas_ok"],
+                         "filas_error": len(res["errores"])},
+                  origen="IMPORT", commit=True)
+    finally:
+        con.close()
     return {"ok": True, **res}
+
+
+def recursos(con: sqlite3.Connection) -> dict:
+    """Último Excel + historial desglosable de archivos cargados.
+
+    historial: últimas 20 filas de import_log (movimientos y extractos),
+    cada una con {archivo, fecha, filas_ok, filas_error, tipo, banco?}.
+    tipo se deduce cruzando con cortes_bancarios.archivo (extractos).
+    """
+    row = con.execute("SELECT archivo, filas_ok, filas_error, fecha FROM import_log"
+                      " ORDER BY id DESC LIMIT 1").fetchone()
+    n = con.execute("SELECT COUNT(*) c FROM movimientos").fetchone()["c"]
+    ultimo = dict(row) if row else None
+    bancos = {}
+    try:
+        for r in con.execute("SELECT co.archivo, cu.banco FROM cortes_bancarios co "
+                             "JOIN cuentas cu ON cu.id=co.cuenta_id"):
+            bancos[r["archivo"]] = r["banco"]
+    except Exception:
+        pass
+    hist = []
+    for r in con.execute("SELECT archivo, filas_ok, filas_error, fecha FROM import_log"
+                         " ORDER BY id DESC LIMIT 20").fetchall():
+        h = dict(r)
+        b = bancos.get(h["archivo"])
+        h["tipo"] = "extracto" if b else "movimientos"
+        if b:
+            h["banco"] = b
+        hist.append(h)
+    return {"ultimo_excel": ultimo, "total_movimientos": n, "historial": hist}
 
 
 def _destino_plantilla() -> Path:

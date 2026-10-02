@@ -7,8 +7,8 @@ from __future__ import annotations
 
 TIPOS = ("ingreso", "egreso")
 TIPOS_PAGO = ("efectivo", "transferencia", "cheque")
-STATUS = ("pendiente", "aplazado", "realizado")
-# RN-12: al crear solo se permite pendiente|realizado (sin aplazado).
+STATUS = ("pendiente", "aplazado", "realizado", "vencido")
+# RN-12: al crear solo se permite pendiente|realizado (sin aplazado ni vencido).
 STATUS_CREACION = ("pendiente", "realizado")
 TIPOS_ENTIDAD = ("cliente", "proveedor")
 

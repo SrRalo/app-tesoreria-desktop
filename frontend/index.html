@@ -53,6 +53,10 @@
       </button>
       <span class="crumbs">Finanzas › Tesorería</span>
       <div class="top-actions">
+        <button class="notif-btn" id="notifBtn" aria-label="Notificaciones de vencimientos" aria-haspopup="dialog">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span class="notif-badge" id="notifBadge" hidden>0</span>
+        </button>
         <span class="usd-badge">USD · Dólar</span>
         <span class="avatar" aria-label="Usuario: Tesorero">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -70,11 +74,9 @@
           </div>
           <div class="spacer"></div>
           <div class="toolbar" role="group" aria-label="Filtros del dashboard">
-            <label class="f">Escenario
-              <select class="input" id="fEscenario">
-                <option value="base" selected>Base</option>
-                <option value="optimista">Optimista</option>
-                <option value="pesimista">Pesimista</option>
+            <label class="f">Año
+              <select class="input" id="fAnioDash">
+                <option value="">Todos</option>
               </select></label>
             <label class="f">Horizonte
               <select class="input" id="fHorizonte">
@@ -82,6 +84,7 @@
                 <option value="30" selected>30 días</option>
                 <option value="90">90 días</option>
               </select></label>
+            <button class="btn primary" id="btnAplicarDash">Aplicar filtros</button>
             <button class="btn primary" id="btnMovimiento">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
               Movimiento</button>
@@ -128,6 +131,7 @@
               <input class="input" type="month" id="fMes" value="2026-01"></label>
             <label class="f" id="wAnio" hidden>Año
               <select class="input" id="fAnio"><option selected>2026</option></select></label>
+            <button class="btn primary" id="btnAplicarFlujo">Aplicar filtros</button>
           </div>
         </div>
         <div class="panel">
@@ -153,9 +157,10 @@
             <label class="f">Tipo
               <select class="input" id="mTipo"><option value="">Todos</option><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>
             <label class="f">Status
-              <select class="input" id="mStatus"><option value="">Todos</option><option value="pendiente">Pendiente</option><option value="aplazado">Aplazado</option><option value="realizado">Realizado</option></select></label>
+              <select class="input" id="mStatus"><option value="">Todos</option><option value="pendiente">Pendiente</option><option value="aplazado">Aplazado</option><option value="realizado">Realizado</option><option value="vencido">Vencido</option></select></label>
             <label class="f">Buscar
               <input class="input" type="search" id="mQ" placeholder="Entidad u observación…" autocomplete="off"></label>
+            <button class="btn primary" id="btnAplicarMov">Aplicar filtros</button>
           </div></div>
           <div style="overflow-x:auto"><table class="tbl" id="movTable" aria-label="Tabla de movimientos"></table></div>
           <div class="panel-foot"><span id="movPage"></span><span style="width:12px"></span>
@@ -167,6 +172,12 @@
         <div class="page-head">
           <div><h1>Entidades</h1>
             <p class="desc">Clientes, proveedores y bancos en modo lectura. Nacen de tus movimientos.</p></div>
+          <div class="spacer"></div>
+          <div class="toolbar" role="group" aria-label="Acciones de entidades">
+            <button class="btn primary" id="btnCargarEnt">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+              Cargar archivos</button>
+          </div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -183,26 +194,149 @@
       <section class="view" id="view-config" aria-label="Configuración">
         <div class="page-head">
           <div><h1>Configuración</h1>
-            <p class="desc">Zona de peligro y datos de la app.</p></div>
+            <p class="desc">Datos, auditoría y zona de peligro. Todo contraído por defecto.</p></div>
         </div>
-        <div class="panel danger">
-          <h2>Borrar todos los datos</h2>
-          <p class="desc">Elimina movimientos, saldos, entidades y cuentas cargadas. La app vuelve al
-            primer arranque para cargar un libro nuevo. Esta acción no se puede deshacer.</p>
-          <p class="desc" id="cfgInfo">…</p>
-          <div class="cfg-row">
-            <label class="f">Clave de administrador
-              <input class="input" type="password" id="cfgClave" autocomplete="off" placeholder="••••••••"></label>
-            <button class="btn danger" id="btnBorrar">Borrar todo</button>
+        <details class="panel cfg-acc" id="accEstado">
+          <summary><span class="cfg-acc-t">Estado de datos</span><span class="cfg-acc-h">Resumen de lo cargado</span></summary>
+          <div class="cfg-body">
+            <p class="desc" id="cfgInfo">…</p>
           </div>
-          <p class="form-err" id="cfgErr" hidden></p>
-        </div>
+        </details>
+        <details class="panel cfg-acc" id="accLogs">
+          <summary><span class="cfg-acc-t">Exportación de logs</span><span class="cfg-acc-h">Reporte .txt de la bitácora</span></summary>
+          <div class="cfg-body">
+            <p class="desc">Filtra por fecha, acción o texto y descarga el reporte plano.
+              Cada línea trae fecha, acción, tabla, detalle y valores antes/después.</p>
+            <div class="cfg-row">
+              <label class="f">Desde<input class="input" type="date" id="logDesde"></label>
+              <label class="f">Hasta<input class="input" type="date" id="logHasta"></label>
+              <label class="f">Acción
+                <select class="input" id="logAccion">
+                  <option value="">Todas</option>
+                  <option>CREAR</option><option>EDITAR</option><option>REALIZADO</option>
+                  <option>ELIMINAR</option><option>IMPORTAR</option><option>INIT_VACIO</option>
+                  <option>BORRADO_TOTAL</option><option>EXPORTAR_LOGS</option>
+                </select></label>
+              <label class="f">Buscar
+                <input class="input" type="search" id="logQ" placeholder="Detalle…" autocomplete="off"></label>
+              <button class="btn primary" id="btnAplicarLogs">Aplicar filtros</button>
+              <button class="btn primary" id="btnLogsTxt">Descargar .txt</button>
+            </div>
+            <p class="desc" id="logCount">…</p>
+            <p class="form-err" id="logErr" hidden></p>
+          </div>
+        </details>
+        <details class="panel cfg-acc" id="accRecursos">
+          <summary><span class="cfg-acc-t">Recursos</span><span class="cfg-acc-h">Origen del Excel cargado</span></summary>
+          <div class="cfg-body">
+            <p class="desc">El navegador solo comparte el nombre del archivo (no la ruta local).
+              Aquí ves qué libro alimentó la base y cuándo.</p>
+            <p class="desc" id="recInfo">…</p>
+            <div class="cfg-row">
+              <button class="btn ghost" id="btnPlantilla2">Descargar plantilla</button>
+            </div>
+          </div>
+        </details>
+        <details class="panel cfg-acc danger" id="accPeligro">
+          <summary><span class="cfg-acc-t">Zona de peligro</span><span class="cfg-acc-h">Borrar todos los datos</span></summary>
+          <div class="cfg-body">
+            <p class="desc">Elimina movimientos, saldos, entidades y cuentas cargadas. La app vuelve al
+              primer arranque para cargar un libro nuevo. La bitácora se conserva para auditoría.
+              Esta acción no se puede deshacer.</p>
+            <div class="cfg-row">
+              <label class="f">Clave de administrador
+                <input class="input" type="password" id="cfgClave" autocomplete="off" placeholder="••••••••"></label>
+              <button class="btn danger" id="btnBorrar">Borrar todo</button>
+            </div>
+            <p class="form-err" id="cfgErr" hidden></p>
+          </div>
+        </details>
       </section>
     </main>
   </div>
 </div>
 
+<!-- ===== notificaciones de vencimientos (campana topbar) ===== -->
+<div class="overlay" id="notifOverlay" hidden>
+  <div class="notif-panel" role="dialog" aria-modal="true" aria-labelledby="notifTitle">
+    <div class="notif-head">
+      <div><h2 id="notifTitle">Notificaciones</h2>
+        <p class="desc" id="notifSub">Vencidos y próximos a vencer.</p></div>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="notifClose" aria-label="Cerrar notificaciones">✕</button>
+    </div>
+    <div class="notif-body" id="notifBody" aria-live="polite"></div>
+    <div class="notif-foot"><span id="notifFoot"></span></div>
+  </div>
+</div>
 <div id="toasts" aria-live="polite"></div>
+
+<!-- ===== modal carga de archivos (RF-23: un campo por fuente + validación previa) ===== -->
+<div class="overlay" id="importOverlay" hidden>
+  <div class="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="importTitle">
+    <h2 id="importTitle">Cargar archivos</h2>
+    <p class="desc">Sube el estado de cuenta de cada banco y tu Excel de CxC / CxP, cada uno en su campo.
+      Puedes llenar solo los campos que necesites; los vacíos se ignoran. Antes de importar se verifica
+      que cada archivo esté en el campo correcto.</p>
+    <form id="importForm" novalidate>
+      <div class="import-grid">
+        <div class="import-field" data-field="pichincha">
+          <label class="f" id="lbl-pichincha">Estado de cuenta Pichincha
+            <span class="fmt">Formato esperado: HTML</span></label>
+          <div class="dropzone" data-drop="pichincha" role="button" tabindex="0"
+            aria-labelledby="lbl-pichincha" aria-label="Subir estado de cuenta Pichincha en HTML">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="pichincha" accept=".html,.htm" hidden></div>
+          <div class="file-chip" data-chip="pichincha" hidden></div>
+          <p class="field-help" data-help="pichincha" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="internacional">
+          <label class="f" id="lbl-internacional">Estado de cuenta Internacional
+            <span class="fmt">Formato esperado: BIFF .xls</span></label>
+          <div class="dropzone" data-drop="internacional" role="button" tabindex="0"
+            aria-labelledby="lbl-internacional" aria-label="Subir estado de cuenta Internacional en xls">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="internacional" accept=".xls" hidden></div>
+          <div class="file-chip" data-chip="internacional" hidden></div>
+          <p class="field-help" data-help="internacional" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="produbanco">
+          <label class="f" id="lbl-produbanco">Estado de cuenta Produbanco
+            <span class="fmt">Formato esperado: .xlsx</span></label>
+          <div class="dropzone" data-drop="produbanco" role="button" tabindex="0"
+            aria-labelledby="lbl-produbanco" aria-label="Subir estado de cuenta Produbanco en xlsx">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="produbanco" accept=".xlsx" hidden></div>
+          <div class="file-chip" data-chip="produbanco" hidden></div>
+          <p class="field-help" data-help="produbanco" role="alert" hidden></p>
+        </div>
+        <div class="import-field" data-field="cxc">
+          <label class="f" id="lbl-cxc">CxC / CxP
+            <span class="fmt">Formato esperado: .xlsx, .xls o .csv</span></label>
+          <div class="dropzone" data-drop="cxc" role="button" tabindex="0"
+            aria-labelledby="lbl-cxc" aria-label="Subir Excel de CxC y CxP">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+            <span>Arrastra tu archivo aquí o <b>selecciónalo</b></span>
+            <input class="drop-input" type="file" data-input="cxc" accept=".xlsx,.xls,.csv" hidden></div>
+          <div class="file-chip" data-chip="cxc" hidden></div>
+          <label class="f sheet-wrap" data-sheetwrap="cxc" hidden>Hoja del libro
+            <select class="input" data-sheet="cxc" aria-label="Hoja del libro CxC"></select></label>
+          <p class="field-help" data-help="cxc" role="alert" hidden></p>
+        </div>
+      </div>
+      <div class="review-card" id="importPreview" hidden></div>
+      <p class="form-err" id="importErr" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="importCancel">Cancelar</button>
+        <button type="button" class="btn primary" id="importValidate" disabled>Validar y continuar</button>
+        <button type="submit" class="btn primary" id="importConfirm" hidden>Confirmar e importar</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- ===== modal movimiento (crear / editar) ===== -->
 <div class="overlay" id="movOverlay" hidden>
@@ -213,8 +347,6 @@
       <div class="form-grid">
         <label class="f">Tipo
           <select class="input" id="f_tipo"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label>
-        <label class="f">Banco
-          <select class="input" id="f_banco"></select></label>
         <label class="f">Fecha de pago
           <input class="input" type="date" id="f_fecha" required></label>
         <label class="f">Tipo de pago
@@ -222,7 +354,7 @@
         <label class="f">Entidad (cliente / proveedor)
           <input class="input" type="text" id="f_entidad" list="dlEntidades" placeholder="Nombre…" autocomplete="off"></label>
         <label class="f">Concepto de pago
-          <select class="input" id="f_concepto"><option value="nomina">Nomina</option><option value="prestamo">Prestamo</option></select></label>
+          <select class="input" id="f_concepto"><option value="nomina">Nomina</option><option value="prestamo">Prestamo</option><option value="cobranza_clientes">Cobranza clientes</option><option value="pago_proveedores">Pago proveedores</option><option value="insumos">Insumos</option></select></label>
         <label class="f">Centro de costo
           <input class="input" type="text" id="f_cc" placeholder="Opcional…" autocomplete="off"></label>
         <label class="f">Valor (USD)
@@ -271,9 +403,12 @@
       <div class="welcome-opt">
         <h3>Importar Excel</h3>
         <p>Usa la plantilla oficial para evitar errores de lectura.</p>
-        <label class="f">Archivo .xlsx
-          <input class="input" type="file" id="wFile" accept=".xlsx"></label>
-        <button class="btn primary" id="wImport" style="width:100%;justify-content:center">Importar y entrar</button>
+        <label class="f">Archivo .xlsx / .xls / .csv
+          <input class="input" type="file" id="wFile" accept=".xlsx,.xls,.csv"></label>
+        <label class="f">Hoja (opcional, vacío = automática)
+          <input class="input" type="text" id="wHoja" placeholder="Movimientos" autocomplete="off"></label>
+        <button class="btn primary" id="wImport" style="width:100%;justify-content:center">Vista previa</button>
+        <div id="wPreview" style="margin-top:10px"></div>
         <button class="btn ghost" id="wTemplate" style="width:100%;justify-content:center">Descargar plantilla</button>
       </div>
       <div class="welcome-opt">

@@ -29,11 +29,27 @@ def verificar_clave(clave: str | None) -> None:
 def borrar_todo(con: sqlite3.Connection, clave: str | None) -> dict:
     verificar_clave(clave)
     with con:
+        con.execute("DELETE FROM conciliacion")
+        con.execute("DELETE FROM extracto_lineas")
+        con.execute("DELETE FROM cortes_bancarios")
+        con.execute("DELETE FROM saldos_diarios_cuenta")
         con.execute("DELETE FROM movimientos")
         con.execute("DELETE FROM saldos_diarios")
         con.execute("DELETE FROM import_log")
+        con.execute("DELETE FROM clientes")
+        con.execute("DELETE FROM proveedores")
         con.execute("DELETE FROM entidades")
         con.execute("DELETE FROM cuentas")
+        con.execute("DELETE FROM bancos")
         con.execute("DELETE FROM config")
+        # La bitácora se preserva para auditoría post-fallo (v3).
         con.executescript(SCHEMA.read_text(encoding="utf-8"))
+        # v4: el seed del schema no fija banco_id (compat v3); se rellena aquí
+        # porque borrar_todo no pasa por conectar()/_migrar_v4().
+        from nucleo.basedatos import _migrar_v4
+        _migrar_v4(con)
+        from servicios.bitacora import registrar
+        registrar(con, "BORRADO_TOTAL", "sistema", None,
+                  "borrado total de datos (bitácora preservada)",
+                  anterior=None, nuevo=None, origen="UI")
     return {"ok": True}

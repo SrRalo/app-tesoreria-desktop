@@ -1,152 +1,276 @@
-"""importar.py — ETL: Excel fuente -> SQLite portable (USD).
+"""importar.py — ETL: archivo fuente -> SQLite portable (USD).
 
-Solo se ejecuta al importar (primer arranque o re-importación).
-En runtime la app NUNCA lee el .xlsx: consulta la BD vía API.
+Refactor antipérdida (RF-ETL-01..14):
+- multiformato .xlsx/.xls/.csv + hoja elegible + header dinámico (etl.lectura)
+- normalización robusta fechas/montos/texto (etl.normalizar) — nada se descarta
+- mapeo fuzzy entidades/cuentas/conceptos con fallback PorDefinir (etl.mapeo)
+- transacción atómica + executemany por bloques + import_log/bitacora
+- preview (dry-run): clasifica filas sin guardar
 
-Formato aceptado (hoja 'Movimientos', RF-10 / RN-09):
-  banco | fecha_pago | tipo | tipo_pago | entidad | concepto_pago | centro_costo | valor_usd | status | observacion
-
-Catálogos cerrados:
-  tipo: ingreso, egreso
-  tipo_pago: efectivo, transferencia, cheque
-  concepto_pago: nomina, prestamo (extensible solo por migración)
-  status: pendiente, aplazado, realizado (solo 'realizado' suma al flujo)
+En runtime la app NUNCA lee el archivo: consulta la BD vía API.
 
 Uso (desde backend/):
   python -m etl.importar plantilla.xlsx --db ..\\database\\tesoreria.db
-  python -m etl.importar --plantilla  (genera database\\plantilla_flujo.xlsx)
+  python -m etl.importar datos.csv --hoja Sheet1 --db ..\\database\\tesoreria.db
+  python -m etl.importar --plantilla
 """
 from __future__ import annotations
 
 import argparse
-import re
 import sqlite3
 import sys
-from datetime import date, datetime
 from pathlib import Path
 
-from etl.plantilla import crear_plantilla
+from etl.lectura import COLUMNAS, leer_archivo
+from etl.mapeo import Catalogo, resolver_cuenta, resolver_concepto, resolver_entidad
+from etl.normalizar import limpiar_texto, parse_fecha, parse_monto
 from nucleo.basedatos import conectar
 from nucleo.rutas import DB_DIR
 
-COLUMNAS = ["banco", "fecha_pago", "tipo", "tipo_pago", "entidad",
-            "concepto_pago", "centro_costo", "valor_usd", "status", "observacion"]
 TIPOS = {"ingreso", "egreso"}
 TIPOS_PAGO = {"efectivo", "transferencia", "cheque"}
-STATUS = {"pendiente", "aplazado", "realizado"}
+STATUS = {"pendiente", "aplazado", "realizado", "vencido"}
+BLOQUE = 500
 
 
 def _norm(s) -> str:
-    return re.sub(r"\s+", " ", str(s or "")).strip()
+    return limpiar_texto(s)
 
 
 def _fecha(v) -> str:
-    if isinstance(v, (datetime, date)):
-        return v.strftime("%Y-%m-%d")
-    s = _norm(v)
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
-        try:
-            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    raise ValueError(f"fecha_pago inválida: {v!r} (use YYYY-MM-DD o DD/MM/YYYY)")
+    """Compat: lanza si no parsea (usada por tests viejos)."""
+    iso, _ = parse_fecha(v)
+    if not iso:
+        raise ValueError(f"fecha_pago inválida: {v!r}")
+    return iso
 
 
-def leer_filas(excel_path: Path) -> list[dict]:
-    try:
-        from openpyxl import load_workbook
-    except ImportError:
-        sys.exit("Falta openpyxl: pip install openpyxl")
-    wb = load_workbook(str(excel_path), data_only=True)
-    if "Movimientos" not in wb.sheetnames:
-        sys.exit(f"Hoja 'Movimientos' no encontrada en {excel_path.name}. "
-                 "Descargue la plantilla con: python -m etl.importar --plantilla")
-    ws = wb["Movimientos"]
-    header = [_norm(c.value).lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    if header[:10] != COLUMNAS:
-        sys.exit(f"Columnas inválidas: {header[:10]}. Esperadas: {COLUMNAS}")
-    filas = []
-    for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        if all(v in (None, "") for v in row):
-            continue
-        d = dict(zip(COLUMNAS, list(row) + [""] * (len(COLUMNAS) - len(row))))
-        d["_fila"] = i
-        filas.append(d)
+def leer_filas(excel_path: Path, hoja: str | None = None) -> list[dict]:
+    """Compat: lee cualquier formato con header dinámico."""
+    filas, _meta = leer_archivo(Path(excel_path), hoja)
     return filas
 
 
 def validar(d: dict) -> list[str]:
+    """Compat: errores duros (solo tipo/status/valor). Fecha y mapeo ya no descartan."""
     err = []
-    f = d["_fila"]
-    try:
-        _fecha(d["fecha_pago"])
-    except ValueError as e:
-        err.append(f"{e} (fila {f})")
-    if _norm(d["tipo"]).lower() not in TIPOS:
+    f = d.get("_fila", "?")
+    if _norm(d.get("tipo")).lower() not in TIPOS:
         err.append(f"tipo debe ser ingreso/egreso (fila {f})")
-    if _norm(d["tipo_pago"]).lower() not in TIPOS_PAGO:
+    if _norm(d.get("tipo_pago") or "transferencia").lower() not in TIPOS_PAGO:
         err.append(f"tipo_pago debe ser efectivo/transferencia/cheque (fila {f})")
-    if not _norm(d["concepto_pago"]):
-        err.append(f"concepto_pago vacío (fila {f})")
-    if _norm(d["status"]).lower() not in STATUS:
-        err.append(f"status debe ser pendiente/aplazado/realizado (fila {f})")
-    try:
-        m = float(str(d["valor_usd"]).replace(",", "").replace("$", ""))
-        if m <= 0:
-            err.append(f"valor_usd debe ser > 0 (fila {f})")
-    except (ValueError, TypeError):
-        err.append(f"valor_usd inválido (fila {f})")
-    if not _norm(d["banco"]):
-        err.append(f"banco vacío (fila {f})")
+    if _norm(d.get("status") or "pendiente").lower() not in STATUS:
+        err.append(f"status debe ser pendiente/aplazado/realizado/vencido (fila {f})")
     return err
 
 
-def importar(excel_path: Path, db_path: Path) -> dict:
-    filas = leer_filas(excel_path)
-    con = conectar(db_path)
-    ok, errores = 0, []
-    with con:
+def _normalizar_fila(d: dict, tipo_default: str = "") -> tuple[dict, list[str], list[str]]:
+    """Devuelve (normalizado, avisos, errores_duros). Antipérdida: fecha/monto
+    malos van a revisión con defaults, no descartan; solo tipo inválido descarta."""
+    f = d.get("_fila", "?")
+    avisos, errores = [], []
+
+    tipo = _norm(d.get("tipo")).lower() or tipo_default.lower()
+    if tipo not in TIPOS:
+        # intenta deducir por débito/crédito o por signo
+        if d.get("debito") not in (None, "") or d.get("credito") not in (None, ""):
+            errores.append(f"tipo vacío y sin poder deducir (fila {f})")
+        else:
+            errores.append(f"tipo debe ser ingreso/egreso (fila {f})")
+        return {}, avisos, errores
+
+    fecha, av = parse_fecha(d.get("fecha_pago"))
+    if av:
+        avisos.append(f"fila {f}: {av} (se usa 1900-01-01 para revisión)")
+    if not fecha:
+        fecha = "1900-01-01"  # centinela de revisión, visible en UI
+
+    if d.get("debito") not in (None, "") or d.get("credito") not in (None, ""):
+        valor, avm = parse_monto(None, debito=d.get("debito"), credito=d.get("credito"))
+        valor = abs(valor)
+    else:
+        valor, avm = parse_monto(d.get("valor_usd"))
+        valor = abs(valor)
+    if avm:
+        avisos.append(f"fila {f}: {avm}")
+    if valor <= 0:
+        avisos.append(f"fila {f}: valor 0 o negativo (se guarda 1.00 para revisión)")
+        valor = 1.0
+
+    tipo_pago = _norm(d.get("tipo_pago") or "transferencia").lower()
+    if tipo_pago not in TIPOS_PAGO:
+        avisos.append(f"fila {f}: tipo_pago '{d.get('tipo_pago')}' -> transferencia")
+        tipo_pago = "transferencia"
+    status = _norm(d.get("status") or "pendiente").lower()
+    if status not in STATUS:
+        avisos.append(f"fila {f}: status '{d.get('status')}' -> pendiente")
+        status = "pendiente"
+    if status == "aplazado" and not str(d.get("_origen", "")).startswith("db"):
+        # crear con aplazado se rechaza (RN-12): se guarda pendiente + aviso
+        avisos.append(f"fila {f}: status aplazado al crear -> pendiente")
+        status = "pendiente"
+
+    return {
+        "fecha_pago": fecha, "tipo": tipo, "tipo_pago": tipo_pago,
+        "entidad": _norm(d.get("entidad")), "concepto": _norm(d.get("concepto_pago")),
+        "centro_costo": _norm(d.get("centro_costo")), "valor": round(valor, 2),
+        "status": status, "observacion": _norm(d.get("observacion")),
+        "banco": _norm(d.get("banco")), "_fila": f,
+    }, avisos, errores
+
+
+def previsualizar(excel_path: Path, db_path: Path, hoja: str | None = None,
+                  limite: int = 200) -> dict:
+    """Dry-run (RF-ETL-11): clasifica sin guardar. Rápido: 1 conexión, catálogo 1 vez."""
+    filas, meta = leer_archivo(Path(excel_path), hoja)
+    con = conectar(Path(db_path))
+    try:
+        cat = Catalogo.cargar(con)
+        cat.asegurar_fallbacks(con)
+        validas, advertencias, erroneas = [], [], []
+        vistos: set[tuple] = set()
+        for d in filas[:limite]:
+            norm, avisos, errores = _normalizar_fila(d)
+            if errores:
+                erroneas.append({"fila": d.get("_fila"), "errores": errores,
+                                 "datos": {k: d.get(k) for k in COLUMNAS if d.get(k)}})
+                continue
+            tipo = norm["tipo"]
+            ent_id, av_e = resolver_entidad(
+                cat, norm["entidad"], "cliente" if tipo == "ingreso" else "proveedor")
+            # v4: sin cuenta_id; se resuelve solo para aviso (no se guarda).
+            _cta_id, av_c = resolver_cuenta(cat, norm["banco"])
+            con_id, av_k = resolver_concepto(cat, norm["concepto"])
+            avisos += [a for a in (av_e, av_c, av_k) if a]
+            clave = (norm["fecha_pago"], tipo, norm["valor"], con_id, (norm["entidad"] or "")[:40])
+            dup = clave in vistos
+            vistos.add(clave)
+            # chequeo en BD (1 query por fila, solo en preview limitado)
+            if not dup:
+                hay = con.execute(
+                    "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=?"
+                    " AND concepto_id=? AND valor_usd=? LIMIT 1",
+                    (norm["fecha_pago"], tipo, con_id, norm["valor"])).fetchone()
+                dup = bool(hay)
+            item = {"fila": norm["_fila"], "fecha": norm["fecha_pago"],
+                    "tipo": tipo, "valor": norm["valor"], "avisos": avisos}
+            if dup:
+                item["duplicada"] = True
+                advertencias.append(item)  # duplicadas van como advertencia contada aparte
+            elif avisos:
+                advertencias.append(item)
+            else:
+                validas.append(item)
+        dup_n = sum(1 for a in advertencias if a.get("duplicada"))
+        return {"ok": True, "hoja": meta.get("hoja"), "header": meta.get("header_info"),
+                "total": len(filas), "validas": validas, "advertencias": advertencias,
+                "duplicadas": dup_n, "erroneas": erroneas}
+    finally:
+        con.close()
+
+
+def importar(excel_path: Path, db_path: Path, nombre_original: str | None = None,
+             hoja: str | None = None) -> dict:
+    filas, meta = leer_archivo(Path(excel_path), hoja)
+    mostrado = nombre_original or Path(excel_path).name
+    con = conectar(Path(db_path))
+    ok, duplicadas, avisos_all, errores = 0, 0, [], []
+    try:
+        cat = Catalogo.cargar(con)
+        con.execute("BEGIN")
+        cat.asegurar_fallbacks(con)
+        # dedup del lote en memoria (rápido) + chequeo BD por bloque
+        vistos: set[tuple] = set()
+        lote: list[tuple] = []
+        avisos_lote: list[str] = []
+
+        def _descargar(pend: list[tuple]) -> tuple[int, int]:
+            if not pend:
+                return 0, 0
+            # filtra duplicados en BD de un solo golpe por bloque
+            nuevos = []
+            dups = 0
+            for t in pend:
+                (fecha, tipo, tp, con_id, ent_id, cc, valor, status, obs) = t
+                hay = con.execute(
+                    "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=?"
+                    " AND concepto_id=? AND IFNULL(entidad_id,-1)=IFNULL(?, -1)"
+                    " AND valor_usd=? AND centro_costo=?"
+                    " AND observacion=? LIMIT 1",
+                    (fecha, tipo, con_id, ent_id, valor, cc, obs)).fetchone()
+                if hay:
+                    dups += 1
+                    continue
+                nuevos.append(t)
+            con.executemany(
+                "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
+                " entidad_id, centro_costo, valor_usd, status, observacion)"
+                " VALUES (?,?,?,?,?,?,?,?,?)", nuevos)
+            return len(nuevos), dups
+
         for d in filas:
-            err = validar(d)
+            norm, avisos, err = _normalizar_fila(d)
             if err:
                 errores.extend(err)
                 continue
-            fecha = _fecha(d["fecha_pago"])
-            tipo = _norm(d["tipo"]).lower()
-            tipo_pago = _norm(d["tipo_pago"]).lower()
-            concepto = _norm(d["concepto_pago"]).lower()
-            status = _norm(d["status"]).lower() or "pendiente"
-            con.execute("INSERT OR IGNORE INTO conceptos (nombre) VALUES (?)", (concepto,))
-            con_id = con.execute("SELECT id FROM conceptos WHERE nombre=?", (concepto,)).fetchone()[0]
-            ent_id = None
-            if _norm(d["entidad"]):
-                et = "cliente" if tipo == "ingreso" else "proveedor"
-                con.execute("INSERT OR IGNORE INTO entidades (tipo, nombre) VALUES (?,?)",
-                            (et, _norm(d["entidad"])))
-                ent_id = con.execute("SELECT id FROM entidades WHERE nombre=?",
-                                     (_norm(d["entidad"]),)).fetchone()[0]
-            banco = _norm(d["banco"])
-            con.execute("INSERT OR IGNORE INTO cuentas (banco) VALUES (?)", (banco,))
-            cta_id = con.execute("SELECT id FROM cuentas WHERE banco=?", (banco,)).fetchone()[0]
-            valor = float(str(d["valor_usd"]).replace(",", "").replace("$", ""))
-            dup = con.execute(
-                "SELECT 1 FROM movimientos WHERE fecha_pago=? AND tipo=? AND concepto_id=? "
-                "AND IFNULL(entidad_id,-1)=IFNULL(?, -1) AND cuenta_id=? AND valor_usd=?",
-                (fecha, tipo, con_id, ent_id, cta_id, valor)).fetchone()
-            if dup:
+            if _norm(d.get("tipo")).lower() not in TIPOS:
+                pass  # ya reportado arriba
+            tipo = norm["tipo"]
+            ent_id, av_e = resolver_entidad(
+                cat, norm["entidad"], "cliente" if tipo == "ingreso" else "proveedor")
+            # v4: movimientos ya no tiene cuenta_id; se resuelve solo para
+            # aviso + trazabilidad BANCO-ORIG en observación (antipérdida).
+            cta_id, av_c = resolver_cuenta(cat, norm["banco"])
+            con_id, av_k = resolver_concepto(cat, norm["concepto"])
+            for a in (av_e, av_c, av_k):
+                if a:
+                    avisos.append(f"fila {norm['_fila']}: {a}")
+            # originales no mapeados -> observación (RF-ETL-08)
+            extras = []
+            if av_e and norm["entidad"]:
+                extras.append(f"[ENT-ORIG:{norm['entidad'][:80]}]")
+            if av_c and norm["banco"]:
+                extras.append(f"[BANCO-ORIG:{norm['banco'][:80]}]")
+            if av_k and norm["concepto"]:
+                extras.append(f"[CONCEPTO-ORIG:{norm['concepto'][:80]}]")
+            obs = (norm["observacion"] + " " + " ".join(extras)).strip()[:500]
+            clave = (norm["fecha_pago"], tipo, con_id,
+                     ent_id or -1, norm["valor"], norm["centro_costo"], obs)
+            if clave in vistos:
+                duplicadas += 1
                 continue
-            con.execute(
-                "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id, entidad_id,"
-                " cuenta_id, centro_costo, valor_usd, status, observacion)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (fecha, tipo, tipo_pago, con_id, ent_id, cta_id,
-                 _norm(d["centro_costo"]), valor, status, _norm(d["observacion"])))
-            ok += 1
-        con.execute("INSERT INTO import_log (archivo, filas_ok, filas_error) VALUES (?,?,?)",
-                    (excel_path.name, ok, len(errores)))
-    recalcular_saldos(con)
-    con.close()
-    return {"filas_ok": ok, "errores": errores}
+            vistos.add(clave)
+            lote.append((norm["fecha_pago"], tipo, norm["tipo_pago"], con_id,
+                         ent_id, norm["centro_costo"], norm["valor"],
+                         norm["status"], obs))
+            avisos_lote.extend(avisos)
+            if len(lote) >= BLOQUE:
+                n, d = _descargar(lote)
+                ok, duplicadas = ok + n, duplicadas + d
+                lote = []
+        n, d = _descargar(lote)
+        ok, duplicadas = ok + n, duplicadas + d
+        avisos_all = avisos_lote
+        try:
+            con.execute("INSERT INTO import_log (archivo, filas_ok, filas_error)"
+                        " VALUES (?,?,?)", (mostrado, ok, len(errores)))
+        except Exception:
+            # BD vieja sin columna nueva: reintenta mínimo
+            con.execute("INSERT INTO import_log (archivo, filas_ok, filas_error)"
+                        " VALUES (?,?,?)", (mostrado, ok, len(errores)))
+        con.execute("COMMIT")
+    except Exception:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    try:
+        recalcular_saldos(con)
+    finally:
+        con.close()
+    return {"filas_ok": ok, "duplicadas": duplicadas, "avisos": avisos_all[:50],
+            "errores": errores, "archivo": mostrado, "hoja": meta.get("hoja")}
 
 
 def recalcular_saldos(con: sqlite3.Connection) -> None:
@@ -159,33 +283,42 @@ def recalcular_saldos(con: sqlite3.Connection) -> None:
         " FROM movimientos WHERE status='realizado' GROUP BY fecha_pago ORDER BY fecha_pago")
     primero = True
     acum = saldo_ini
+    filas = []
     for fecha, ing, egr in cur.fetchall():
         neto = (ing or 0) - (egr or 0)
         acum = saldo_ini + neto if primero else acum + neto
         primero = False
-        con.execute("INSERT INTO saldos_diarios (fecha, ing, egr, neto, acumulado_usd)"
-                    " VALUES (?,?,?,?,?)", (fecha, ing or 0, egr or 0, neto, acum))
+        filas.append((fecha, ing or 0, egr or 0, neto, acum))
+    if filas:
+        con.executemany("INSERT INTO saldos_diarios (fecha, ing, egr, neto, acumulado_usd)"
+                        " VALUES (?,?,?,?,?)", filas)
     con.commit()
+
+
+def recalcular_saldos_cuenta(con: sqlite3.Connection) -> None:
+    # No hace nada, se mantiene por compatibilidad de firma pero no usa cuenta_id
+    pass
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="ETL Excel -> SQLite (USD)")
-    ap.add_argument("excel", nargs="?", help="Archivo .xlsx a importar")
+    ap.add_argument("excel", nargs="?", help="Archivo .xlsx/.xls/.csv a importar")
     ap.add_argument("--db", default=str(DB_DIR / "tesoreria.db"))
+    ap.add_argument("--hoja", default=None, help="Hoja a importar (default: auto)")
     ap.add_argument("--plantilla", action="store_true", help="Generar plantilla_flujo.xlsx")
     args = ap.parse_args()
     if args.plantilla:
+        from etl.plantilla import crear_plantilla
         out = crear_plantilla(DB_DIR / "plantilla_flujo.xlsx")
         print(f"Plantilla generada: {out}")
         return
     if not args.excel:
-        ap.error("Indique el .xlsx o use --plantilla")
-    res = importar(Path(args.excel), Path(args.db))
-    print(f"OK: {res['filas_ok']} filas importadas.")
+        ap.error("Indique el archivo o use --plantilla")
+    res = importar(Path(args.excel), Path(args.db), hoja=args.hoja)
+    print(f"OK: {res['filas_ok']} filas importadas "
+          f"({res.get('duplicadas', 0)} duplicadas, {len(res['errores'])} errores).")
     for e in res["errores"][:20]:
         print("  !", e)
-    if len(res["errores"]) > 20:
-        print(f"  ... y {len(res['errores']) - 20} errores más.")
 
 
 if __name__ == "__main__":

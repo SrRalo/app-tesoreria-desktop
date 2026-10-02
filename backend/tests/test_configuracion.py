@@ -33,9 +33,14 @@ class TestBorrado:
         assert despues["saldos_diarios"] == 0
         assert despues["import_log"] == 0
         assert despues["entidades"] == 0
-        assert despues["conceptos"] == 2 and despues["cuentas"] == 4  # seeds RN-09
+        assert despues["conceptos"] == 7 and despues["cuentas"] == 6  # seeds RN-09 + v3 (comision, Produbanco) + insumos + por_definir (RF-ETL-08)
         assert float(con.execute(
             "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0]) == 0
+        # v3: la bitácora se preserva y registra el borrado
+        nbit = con.execute("SELECT COUNT(*) c FROM bitacora").fetchone()["c"]
+        assert nbit >= 1
+        assert con.execute(
+            "SELECT COUNT(*) c FROM bitacora WHERE accion='BORRADO_TOTAL'").fetchone()["c"] == 1
 
     def test_despues_vuelve_a_primer_arranque(self, con_seed):
         con, _ = con_seed

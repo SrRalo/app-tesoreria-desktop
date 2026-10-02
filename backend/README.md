@@ -34,6 +34,19 @@ trimestre: `&mes=YYYY-MM` → ese + 2 siguientes; anual: `&anio=YYYY`),
 `GET/POST /api/movimientos` (filtros `tipo,status,q,page,limit`), `GET /api/entidades`, `GET /api/cuentas`,
 `DELETE /api/datos` (borrado total con header `X-Admin-Clave`, RN-13).
 
+Estados de cuenta (RF-19, solo lectura en Entidades > Bancos):
+
+```powershell
+cd backend
+# Importar un estado de cuenta (pichincha|internacional|produbanco)
+python -m etl.extractos.importar_extracto "..\..\fuente de datos\01 31 agosto Pichiccha.xls" pichincha --db ..\database\tesoreria.db
+```
+
+o por HTTP: `POST /api/extractos/importar` (multipart `archivo` + `banco`).
+Los extractos NO generan movimientos ni entran al Flujo; solo se consultan
+en `GET /api/bancos`, `GET /api/bancos/<id>/meses` y
+`GET /api/bancos/<id>/extracto`. Reimportar no duplica (hash).
+
 ## Primer arranque (app empaquetada)
 
 1. La app detecta DB vacía (`GET /api/estado -> necesita_import=true`) y muestra modal:

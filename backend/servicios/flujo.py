@@ -16,11 +16,10 @@ MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
          "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
 MOV_SELECT = ("SELECT m.id, m.fecha_pago, m.tipo, m.tipo_pago, c.nombre AS concepto_pago,"
-              " e.nombre AS entidad, cu.banco, m.centro_costo, m.valor_usd, m.status,"
+              " e.nombre AS entidad, m.centro_costo, m.valor_usd, m.status,"
               " m.observacion FROM movimientos m"
               " JOIN conceptos c ON c.id=m.concepto_id"
-              " LEFT JOIN entidades e ON e.id=m.entidad_id"
-              " JOIN cuentas cu ON cu.id=m.cuenta_id")
+              " LEFT JOIN entidades e ON e.id=m.entidad_id")
 
 
 def _parse_ym(s: str) -> tuple[int, int]:
@@ -38,10 +37,37 @@ def _sum_meses(y: int, m: int, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def saldos(con: sqlite3.Connection) -> list[dict]:
-    """Saldos diarios precalculados para el Dashboard (solo 'realizado')."""
+def saldos(con: sqlite3.Connection, anio: str = "") -> list[dict]:
+    """Saldos diarios precalculados para el Dashboard (solo 'realizado').
+
+    Con anio='2026' filtra a ese año para el selector de año del Dashboard.
+    """
+    if anio and len(anio) == 4 and anio.isdigit():
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM saldos_diarios WHERE fecha LIKE ? ORDER BY fecha",
+            (anio + "-%",)).fetchall()]
     return [dict(r) for r in con.execute(
         "SELECT * FROM saldos_diarios ORDER BY fecha").fetchall()]
+
+
+def anios(con: sqlite3.Connection) -> list[str]:
+    """Años con datos (movimientos o saldos) para poblar los selectores de año."""
+    fechas: set[str] = set()
+    for tabla, col in (("movimientos", "fecha_pago"), ("saldos_diarios", "fecha")):
+        try:
+            for (f,) in con.execute(
+                    f"SELECT DISTINCT substr({col},1,4) y FROM {tabla} ORDER BY y"):
+                if f and len(f) == 4 and f.isdigit():
+                    fechas.add(f)
+        except Exception:
+            continue
+    try:
+        ini = con.execute("SELECT valor FROM config WHERE clave='fecha_inicio'").fetchone()
+        if ini and str(ini[0])[:4].isdigit():
+            fechas.add(str(ini[0])[:4])
+    except Exception:
+        pass
+    return sorted(fechas) or [date.today().strftime("%Y")]
 
 
 def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:

@@ -58,18 +58,19 @@ class TestBaseDatos:
             with con:
                 con.execute(
                     "INSERT INTO movimientos (fecha_pago, tipo, tipo_pago, concepto_id,"
-                    " cuenta_id, valor_usd, status) VALUES (?,?,?,?,?,?,?)",
-                    ("2026-01-05", "ingreso", "transferencia", 9999, 1, 100, "pendiente"))
+                    " valor_usd, status) VALUES (?,?,?,?,?,?)",
+                    ("2026-01-05", "ingreso", "transferencia", 9999, 100, "pendiente"))
 
 
 class TestCatalogos:
     def test_constantes_rn09(self):
         assert set(catalogos.TIPOS) == {"ingreso", "egreso"}
         assert set(catalogos.TIPOS_PAGO) == {"efectivo", "transferencia", "cheque"}
-        assert set(catalogos.STATUS) == {"pendiente", "aplazado", "realizado"}
+        assert set(catalogos.STATUS) == {"pendiente", "aplazado", "realizado", "vencido"}
 
     def test_crear_no_permite_aplazado_rn12(self):
         assert "aplazado" not in catalogos.STATUS_CREACION
+        assert "vencido" not in catalogos.STATUS_CREACION
         assert set(catalogos.STATUS_CREACION) == {"pendiente", "realizado"}
 
     def test_en_catalogo(self):
