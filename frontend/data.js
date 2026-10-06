@@ -169,22 +169,23 @@ const MockApi = (() => {
     }
     return cols;
   }
-  function armarFlujo(cols, esMes) {
+  function armarFlujo(cols, esMes, escenario = 'base') {
     const detI = {}, detE = {};
     const real = movs.filter((m) => m.status === 'realizado');
+    const fac = { base: [1, 1], optimista: [1.15, 0.95], pesimista: [0.7, 1.1] }[escenario] || [1, 1];
     let prev = saldos.filter((s) => s.fecha < cols[0].clave);
     let a = prev.length ? prev[prev.length - 1].acumulado_usd : SALDO_INI;
     const out = cols.map((c) => {
       const ms = real.filter((m) => esMes ? m.fecha_pago.startsWith(c.clave) : m.fecha_pago === c.clave);
-      const ing = ms.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.valor_usd, 0);
-      const egr = ms.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.valor_usd, 0);
-      const ini = a;
-      a = a + ing - egr;
+      const ing = +(ms.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.valor_usd, 0) * fac[0]).toFixed(2);
+      const egr = +(ms.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.valor_usd, 0) * fac[1]).toFixed(2);
+      const ini = +a.toFixed(2);
+      a = +(a + ing - egr).toFixed(2);
       detI[c.clave] = ms.filter((m) => m.tipo === 'ingreso');
       detE[c.clave] = ms.filter((m) => m.tipo === 'egreso');
-      return { ...c, saldo_inicial: ini, ing, egr, neto: ing - egr, acumulado: a };
+      return { ...c, saldo_inicial: ini, ing, egr, neto: +(ing - egr).toFixed(2), acumulado: a };
     });
-    return { columnas: out, detalle_ingresos: detI, detalle_egresos: detE };
+    return { escenario, columnas: out, detalle_ingresos: detI, detalle_egresos: detE };
   }
 
   return {
@@ -220,9 +221,21 @@ const MockApi = (() => {
       if (m === 'trimestre') { cols = columnasMeses(p.mes || '2026-01', 3); esMes = true; }
       else if (m === 'mensual') { cols = columnasMeses((p.anio || '2026') + '-01', 12); esMes = true; }
       else cols = columnasSemana(p.desde);
-      return { modo: m, ...armarFlujo(cols, esMes) };
+      return { modo: m, ...armarFlujo(cols, esMes, p.escenario || 'base') };
     },
-    saldos: async (anio = '') => anio ? saldos.filter((s) => s.fecha.startsWith(anio)) : saldos,
+    saldos: async (anio = '', escenario = 'base') => {
+      const rows = anio ? saldos.filter((s) => s.fecha.startsWith(anio)) : saldos.slice();
+      if (escenario === 'base' || !rows.length) return rows;
+      const fac = MockApi.ESCENARIOS[escenario] || MockApi.ESCENARIOS.base;
+      let a = rows[0].acumulado_usd - rows[0].neto;
+      return rows.map((s) => {
+        const ing = +(s.ing * fac.ing).toFixed(2);
+        const egr = +(s.egr * fac.egr).toFixed(2);
+        const neto = +(ing - egr).toFixed(2);
+        a = +(a + neto).toFixed(2);
+        return { ...s, ing, egr, neto, acumulado_usd: a };
+      });
+    },
     anios: async () => [...new Set(saldos.map((s) => s.fecha.slice(0, 4)))].sort(),
     notificaciones: async () => {
       const hoy = new Date().toISOString().slice(0, 10);
@@ -429,7 +442,7 @@ const RealApi = {
       throw new Error(r.errores.slice(0, 3).join(' · '));
     return r;
   },
-  flujo: (modo, p = {}) => jfetch('/api/flujo?' + _qs({ modo, desde: p.desde, mes: p.mes, anio: p.anio })),
+  flujo: (modo, p = {}) => jfetch('/api/flujo?' + _qs({ modo, desde: p.desde, mes: p.mes, anio: p.anio, escenario: p.escenario || 'base' })),
   previewImportar: async (f, hoja = '') => {
     const fd = new FormData();
     fd.append('archivo', f, f.name);
@@ -466,7 +479,7 @@ const RealApi = {
   bancos: () => jfetch('/api/bancos').then((r) => r.rows || []),
   bancoMeses: (id) => jfetch('/api/bancos/' + id + '/meses').then((r) => r.rows || []),
   bancoExtracto: (id, p = {}) => jfetch('/api/bancos/' + id + '/extracto?' + _qs(p)),
-  saldos: (anio = '') => jfetch('/api/saldos?' + _qs({ anio })),
+  saldos: (anio = '', escenario = 'base') => jfetch('/api/saldos?' + _qs({ anio, escenario })),
   anios: () => jfetch('/api/anios'),
   notificaciones: () => jfetch('/api/notificaciones'),
   movimientos: (p = {}) => jfetch('/api/movimientos?' + _qs(p)),
@@ -482,6 +495,25 @@ const RealApi = {
     headers: { 'X-Admin-Clave': clave || '' } }),
   bitacora: (p = {}) => jfetch('/api/bitacora?' + _qs(p)),
   recursos: () => jfetch('/api/recursos'),
+  exportFlujo: async (modo, p = {}, formato = 'csv') => {
+    const r = await fetch('/api/flujo/export?' + _qs({
+      modo, desde: p.desde, mes: p.mes, anio: p.anio,
+      escenario: p.escenario || 'base', formato }));
+    if (!r.ok) {
+      let msg = 'error ' + r.status;
+      try { msg = (await r.json()).error || msg; } catch (e) { /* binario */ }
+      throw new Error(msg);
+    }
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = /filename=([^\s;]+)/.exec(cd);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : ('flujo_' + modo + '.' + formato);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return { ok: true };
+  },
   exportLogsTxt: async (p = {}) => {
     const r = await fetch('/api/bitacora/export?' + _qs(p));
     if (!r.ok) {
@@ -583,7 +615,27 @@ const Api = (() => {
     borrarDatos: usar('borrarDatos'),
     bitacora: usar('bitacora'),
     recursos: usar('recursos'),
-    exportLogsTxt: async (p = {}) => {
+    exportFlujo: async (flujoModo, p = {}, formato = 'csv') => {
+      const m = await sondear();
+      if (m === 'real') return RealApi.exportFlujo(flujoModo, p, formato);
+      // Demo: CSV en el cliente desde el mock.
+      if (formato !== 'csv') throw new Error('sin backend: en demo solo CSV');
+      const r = await MockApi.flujo(flujoModo, p);
+      const filas = [['clave', 'titulo', 'subtitulo', 'saldo_inicial',
+        'ingresos', 'egresos', 'neto', 'acumulado']];
+      for (const c of r.columnas)
+        filas.push([c.clave, c.titulo, c.subtitulo || '', c.saldo_inicial,
+          c.ing, c.egr, c.neto, c.acumulado]);
+      const blob = new Blob(['\ufeff' + filas.map((f) => f.join(',')).join('\n')],
+        { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'flujo_' + (r.modo || flujoModo) + '_' + (r.escenario || 'base') + '.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      return { ok: true };
+    },
+  exportLogsTxt: async (p = {}) => {
       await sondear();
       if (modo !== 'real') {
         // Demo: genera el .txt en el cliente desde la bitácora mock.

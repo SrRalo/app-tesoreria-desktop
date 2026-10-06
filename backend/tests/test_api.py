@@ -208,3 +208,52 @@ def test_extracto_importar_y_pendientes(base):
     cuerpo, ctype = multipart_archivo(html, "otro")
     status, res3, _ = llamar(url, "POST", "/api/extractos/importar", cuerpo, ctype)
     assert status == 400 and "error" in res3
+
+
+def _importar_seed(url, tmp):
+    xlsx = tmp / "seed.xlsx"
+    crear_plantilla(xlsx)
+    cuerpo, ctype = multipart_xlsx(xlsx.read_bytes())
+    status, res, _ = llamar(url, "POST", "/api/importar", cuerpo, ctype)
+    assert status == 200 and res["filas_ok"] == 3
+
+
+def test_flujo_escenario_http(base):
+    """RF-03 por HTTP: escenario válido reescala, inválido da 400."""
+    url, tmp = base
+    _importar_seed(url, tmp)
+    _, b, _ = llamar(url, "GET", "/api/flujo?modo=diario&desde=2026-01-05&escenario=base")
+    assert b["escenario"] == "base" and b["columnas"][0]["ing"] == 8500
+    _, o, _ = llamar(url, "GET", "/api/flujo?modo=diario&desde=2026-01-05&escenario=optimista")
+    assert o["escenario"] == "optimista" and o["columnas"][0]["ing"] == 9775.0
+    _, p, _ = llamar(url, "GET", "/api/flujo?modo=diario&desde=2026-01-05&escenario=pesimista")
+    assert p["escenario"] == "pesimista" and p["columnas"][0]["ing"] == 5950.0
+    status, res, _ = llamar(url, "GET", "/api/flujo?modo=diario&escenario=otro")
+    assert status == 400 and "error" in res
+    _, s, _ = llamar(url, "GET", "/api/saldos?escenario=optimista")
+    assert s[0]["ing"] == 9775.0
+    status, res, _ = llamar(url, "GET", "/api/saldos?escenario=otro")
+    assert status == 400 and "error" in res
+
+
+def test_flujo_export_http(base):
+    """RF-05 por HTTP: CSV descarga con cabecera; XLSX según openpyxl; formato malo da 400."""
+    url, tmp = base
+    _importar_seed(url, tmp)
+    status, raw, headers = llamar(url, "GET", "/api/flujo/export?modo=diario&desde=2026-01-05&formato=csv")
+    assert status == 200
+    assert "text/csv" in headers.get("Content-Type", "")
+    assert "attachment" in headers.get("Content-Disposition", "")
+    texto = raw.decode("utf-8-sig")
+    assert texto.splitlines()[0] == "clave,titulo,subtitulo,saldo_inicial,ingresos,egresos,neto,acumulado"
+    assert "2026-01-05" in texto and "8500" in texto
+    status, raw, _ = llamar(url, "GET",
+                            "/api/flujo/export?modo=diario&desde=2026-01-05&formato=csv&escenario=pesimista")
+    assert status == 200 and "5950" in raw.decode("utf-8-sig")
+    status, res, _ = llamar(url, "GET", "/api/flujo/export?modo=diario&formato=otro")
+    assert status == 400 and "error" in res
+    pytest.importorskip("openpyxl")
+    status, raw, headers = llamar(url, "GET", "/api/flujo/export?modo=mensual&anio=2026&formato=xlsx")
+    assert status == 200
+    assert "spreadsheetml" in headers.get("Content-Type", "")
+    assert raw[:2] == b"PK"  # contenedor ZIP xlsx

@@ -15,6 +15,22 @@ DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
          "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 
+# RF-03 / RN-04: factores por escenario sobre el flujo base (solo realizado).
+# base = 100%; optimista = cobros x1.15 + pagos x0.95;
+# pesimista = cobros x0.70 + pagos x1.10 (puntuales + 10% inesperados).
+ESCENARIOS = {
+    "base": (1.0, 1.0),
+    "optimista": (1.15, 0.95),
+    "pesimista": (0.70, 1.10),
+}
+
+
+def _factores(escenario: str) -> tuple[float, float]:
+    try:
+        return ESCENARIOS[escenario]
+    except KeyError:
+        raise ValueError(f"escenario debe ser { '|'.join(sorted(ESCENARIOS)) }")
+
 MOV_SELECT = ("SELECT m.id, m.fecha_pago, m.tipo, m.tipo_pago, c.nombre AS concepto_pago,"
               " e.nombre AS entidad, m.centro_costo, m.valor_usd, m.status,"
               " m.observacion FROM movimientos m"
@@ -37,17 +53,32 @@ def _sum_meses(y: int, m: int, n: int) -> list[tuple[int, int]]:
     return out
 
 
-def saldos(con: sqlite3.Connection, anio: str = "") -> list[dict]:
+def saldos(con: sqlite3.Connection, anio: str = "", escenario: str = "base") -> list[dict]:
     """Saldos diarios precalculados para el Dashboard (solo 'realizado').
 
     Con anio='2026' filtra a ese año para el selector de año del Dashboard.
+    Con escenario != base se aplican los factores RN-04 y se reencadena
+    neto + acumulado (la alerta de déficit del front lee el acumulado).
     """
+    f_ing, f_egr = _factores(escenario)
     if anio and len(anio) == 4 and anio.isdigit():
-        return [dict(r) for r in con.execute(
+        rows = [dict(r) for r in con.execute(
             "SELECT * FROM saldos_diarios WHERE fecha LIKE ? ORDER BY fecha",
             (anio + "-%",)).fetchall()]
-    return [dict(r) for r in con.execute(
-        "SELECT * FROM saldos_diarios ORDER BY fecha").fetchall()]
+    else:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM saldos_diarios ORDER BY fecha").fetchall()]
+    if escenario == "base" or not rows:
+        return rows
+    base0 = rows[0]["acumulado_usd"] - rows[0]["neto"]
+    acum = base0
+    for r in rows:
+        r["ing"] = round(r["ing"] * f_ing, 2)
+        r["egr"] = round(r["egr"] * f_egr, 2)
+        r["neto"] = round(r["ing"] - r["egr"], 2)
+        acum = round(acum + r["neto"], 2)
+        r["acumulado_usd"] = acum
+    return rows
 
 
 def anios(con: sqlite3.Connection) -> list[str]:
@@ -77,6 +108,8 @@ def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
         modo = "diario"
     elif modo == "anual":
         modo = "mensual"
+    esc = q.get("escenario", ["base"])[0] if isinstance(q.get("escenario", None), list) else q.get("escenario", "base")
+    f_ing, f_egr = _factores(esc)
     saldo_ini = float(con.execute(
         "SELECT valor FROM config WHERE clave='saldo_inicial_usd'").fetchone()[0])
     saldos = {r["fecha"]: dict(r) for r in
@@ -116,10 +149,10 @@ def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
     acum = arrastre
     for clave, titulo, subtitulo in periodos:
         col_movs = [x for x in movs if en_col(x["fecha_pago"], clave)]
-        i = sum(x["valor_usd"] for x in col_movs if x["tipo"] == "ingreso")
-        e = sum(x["valor_usd"] for x in col_movs if x["tipo"] == "egreso")
-        neto = i - e
-        acum = acum + neto
+        i = round(sum(x["valor_usd"] for x in col_movs if x["tipo"] == "ingreso") * f_ing, 2)
+        e = round(sum(x["valor_usd"] for x in col_movs if x["tipo"] == "egreso") * f_egr, 2)
+        neto = round(i - e, 2)
+        acum = round(acum + neto, 2)
         columnas.append({"clave": clave, "titulo": titulo, "subtitulo": subtitulo,
                          "saldo_inicial": round(acum - neto, 2), "ing": round(i, 2),
                          "egr": round(e, 2), "neto": round(neto, 2),
@@ -128,5 +161,5 @@ def flujo_por_modo(con: sqlite3.Connection, modo: str, q: dict) -> dict:
         egr.append(e)
         det_ing[clave] = [x for x in col_movs if x["tipo"] == "ingreso"]
         det_egr[clave] = [x for x in col_movs if x["tipo"] == "egreso"]
-    return {"modo": modo, "columnas": columnas,
+    return {"modo": modo, "escenario": esc, "columnas": columnas,
             "detalle_ingresos": det_ing, "detalle_egresos": det_egr}

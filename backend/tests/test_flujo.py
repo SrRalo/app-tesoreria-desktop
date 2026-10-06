@@ -107,3 +107,47 @@ class TestMensual:
         assert (ene["ing"], ene["egr"], ene["acumulado"]) == (8500, 5500, 3000)
         feb = col(res, "2026-02")
         assert (feb["saldo_inicial"], feb["ing"], feb["acumulado"]) == (3000, 0, 3000)
+
+
+class TestEscenarios:
+    """RF-03 / RN-04: base|optimista|pesimista reescalan ing/egr y reencadenan."""
+
+    def test_base_es_default_y_sin_cambios(self, con_flujo):
+        a = flujo_por_modo(con_flujo, "diario", {"desde": ["2026-01-05"]})
+        b = flujo_por_modo(con_flujo, "diario",
+                            {"desde": ["2026-01-05"], "escenario": ["base"]})
+        assert a["escenario"] == "base"
+        assert [(c["ing"], c["egr"]) for c in a["columnas"]] == \
+               [(c["ing"], c["egr"]) for c in b["columnas"]]
+
+    def test_optimista_cobros_115_pagos_095(self, con_flujo):
+        res = flujo_por_modo(con_flujo, "diario",
+                             {"desde": ["2026-01-05"], "escenario": ["optimista"]})
+        assert res["escenario"] == "optimista"
+        c5 = col(res, "2026-01-05")
+        c6 = col(res, "2026-01-06")
+        assert (c5["ing"], c5["egr"], c5["neto"], c5["acumulado"]) == (9775.0, 0.0, 9775.0, 9775.0)
+        assert (c6["ing"], c6["egr"], c6["neto"], c6["acumulado"]) == (0.0, 5225.0, -5225.0, 4550.0)
+
+    def test_pesimista_cobros_070_pagos_110(self, con_flujo):
+        res = flujo_por_modo(con_flujo, "diario",
+                             {"desde": ["2026-01-05"], "escenario": ["pesimista"]})
+        assert res["escenario"] == "pesimista"
+        c5 = col(res, "2026-01-05")
+        c6 = col(res, "2026-01-06")
+        assert (c5["ing"], c5["neto"], c5["acumulado"]) == (5950.0, 5950.0, 5950.0)
+        assert (c6["egr"], c6["neto"], c6["acumulado"]) == (6050.0, -6050.0, -100.0)
+
+    def test_escenario_invalido(self, con_flujo):
+        with pytest.raises(ValueError):
+            flujo_por_modo(con_flujo, "diario",
+                           {"desde": ["2026-01-05"], "escenario": ["otro"]})
+
+    def test_saldos_con_escenario_reencadena(self, con_flujo):
+        rows = saldos(con_flujo, escenario="pesimista")
+        assert [(r["ing"], r["egr"]) for r in rows] == [(5950.0, 0.0), (0.0, 6050.0)]
+        assert [r["acumulado_usd"] for r in rows] == [5950.0, -100.0]
+
+    def test_saldos_escenario_invalido(self, con_flujo):
+        with pytest.raises(ValueError):
+            saldos(con_flujo, escenario="otro")

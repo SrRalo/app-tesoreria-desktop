@@ -99,5 +99,29 @@ Aquí tienes la especificación técnica de requerimientos para actualizar y ref
        │
        ▼
 [5. Ejecución Motor de Conciliación Automática (RN-15)]
+**Sin efecto desde a6c416b (RF-21 eliminado): ver §7.**
 
 ```
+
+---
+
+## 7. Verificación ISS-06 (auditoría RF-ETL-01–16 contra el código)
+
+| ID | Estado | Evidencia |
+| --- | --- | --- |
+| RF-ETL-01 | Hecho | `etl/lectura.py` multiformato `.xlsx`/`.xls` BIFF/`.csv` + hoja elegible; tests `test_header_dinamico_saltea_titulos`, `test_csv_con_punto_y_coma`, `test_xls_real_biff` |
+| RF-ETL-02 | Hecho | Header dinámico + `header_info`; test `test_header_dinamico_saltea_titulos` |
+| RF-ETL-03 | Hecho | Pipelines separados: `etl/importar.py` (CxC/CxP → `movimientos`) vs `etl/extractos/importar_extracto.py` (estados → `extracto_lineas`) |
+| RF-ETL-04 | Hecho | `etl/normalizar.py::parse_fecha` (textos + serial Excel); test `test_fecha_serial_excel_y_textos` |
+| RF-ETL-05 | Hecho | `parse_monto` ($, USD, comas, débito/crédito, signo); test `test_monto_simbolos_y_coma_decimal` |
+| RF-ETL-06 | Hecho | `limpiar_texto` + `es_fila_total` (filtra subtotales); test `test_texto_limpio_y_totales` |
+| RF-ETL-07 | Hecho | `etl/mapeo.py::UMBRAL = 0.85` (difflib `SequenceMatcher ≥ 85%`, exacto → contiene → fuzzy con cache); test `test_fuzzy_y_fallback` (exacto case-insens, typo `PACIFICAM` → fuzzy, `INEXISTENTE XYZ` → fallback) |
+| RF-ETL-08 | Hecho | Fallbacks `PorDefinir`/`por_definir`/NULL + original en `observacion` (`[ENT-ORIG…]`/`[BANCO-ORIG…]`/`[CONCEPTO-ORIG…]`); test `test_import_batch_rapido_y_antipérdida` (la fila mala también entra) |
+| RF-ETL-09 | Hecho | Alias + número (`canon_banco`, `cta_exact`); test `test_fuzzy_y_fallback` (`Pichincha CTA CTE 2100319432` → cuenta real) |
+| RF-ETL-10 | Hecho | `hash_unico = SHA256(...)` + `INSERT OR IGNORE`; reimport no duplica (movimientos: dedup lote + bloque; extractos: hash); tests `test_import_batch_rapido_y_antipérdida`, `test_extracto_importar_y_pendientes` |
+| RF-ETL-11 | Hecho | `previsualizar()` (dry-run: válidas/advertencias/duplicadas/erróneas sin guardar) + `POST /api/importar/preview`; test `test_preview_no_guarda_y_clasifica` |
+| RF-ETL-12 | Hecho | `import_log` + `bitacora` (`origen='IMPORT'`) en cada importación; tests `test_arranque.py`, `test_bitacora.py` |
+| RF-ETL-13 | Hecho | `importar()` con `BEGIN`/`COMMIT`/`ROLLBACK`; `POST /api/importar/lote` revalida y usa respaldo+restauración todo-o-nada; tests `test_lote_valido_importa_todo`, `test_lote_invalido_no_guarda_nada` |
+| RF-ETL-14 | Hecho | `executemany` por bloques (`BLOQUE = 500`); test `test_import_batch_rapido_y_antipérdida` (300 filas < 5s) |
+| RF-ETL-15 | Descartado | Pedía invocar el motor de conciliación tras importar. **Sin efecto desde a6c416b**: RF-21 eliminado, `servicios/conciliacion.py` DEPRECATED sin uso (nada lo importa), tests exigen `conciliacion` vacía y endpoints 404. El post-import real es: `import_log` + `bitacora` + `recalcular_saldos` (movimientos) / corte+apertura (extractos), sin matcheo |
+| RF-ETL-16 | Hecho | `recalcular_saldos()` tras `COMMIT` en `importar()` (+ CRUD vía `recalcular_saldos_desde`); tests `test_flujo.py`, `test_movimientos.py` |

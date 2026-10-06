@@ -57,8 +57,9 @@ function askConfirm(title, msg, yesLabel) {
     $('#confirmNo').focus();
   });
 }
-const state = { horizonte: 30, anio: '' };
+const state = { horizonte: 30, anio: '', escenario: 'base' };
 const flujoState = { modo: 'diario', desde: '2026-01-19', mes: '2026-01', anio: '2026',
+  escenario: 'base',
   expIng: false, expEgr: false, weeks: null, weekCache: {}, semLoading: false, semDone: false, dataEnd: null };
 
 function addDaysISO(iso, days) {
@@ -66,9 +67,11 @@ function addDaysISO(iso, days) {
   return new Date(d.getTime() + days * 864e5).toISOString().slice(0, 10);
 }
 async function fetchWeek(desde) {
-  if (!flujoState.weekCache[desde])
-    flujoState.weekCache[desde] = await Api.flujo('diario', { desde });
-  return flujoState.weekCache[desde];
+  const key = desde + '|' + (flujoState.escenario || 'base');
+  if (!flujoState.weekCache[key])
+    flujoState.weekCache[key] = await Api.flujo('diario',
+      { desde, escenario: flujoState.escenario || 'base' });
+  return flujoState.weekCache[key];
 }
 
 /* ===== ROUTER (una sola pantalla, sin recargar) ===== */
@@ -91,7 +94,7 @@ window.addEventListener('hashchange', route);
 
 /* ===== DASHBOARD ===== */
 async function renderDashboard() {
-  const saldos = await Api.saldos(state.anio || '');
+  const saldos = await Api.saldos(state.anio || '', state.escenario || 'base');
   if (!saldos.length) {
     $('#dashRange').textContent = 'Sin datos todavía · importa tu Excel o crea movimientos';
     $('#dashAlert').innerHTML = '';
@@ -123,7 +126,8 @@ async function renderDashboard() {
 
   $('#dashRange').textContent =
     'Del ' + fmtFecha(sim[0].clave) + ' al ' + fmtFecha(sim[sim.length - 1].clave) +
-    (state.anio ? ' · año ' + state.anio : '') + ' · USD';
+    (state.anio ? ' · año ' + state.anio : '') +
+    ' · escenario ' + (state.escenario || 'base') + ' · USD';
 
   const mal = sim.find((c) => c.acumulado < 0);
   const box = $('#dashAlert');
@@ -269,7 +273,7 @@ function paintSel(r, c) {
 }
 
 async function renderFlujo() {
-  const { modo, desde, mes, anio, expIng, expEgr } = flujoState;
+  const { modo, desde, mes, anio, escenario, expIng, expEgr } = flujoState;
   const wrap = $('#matrixWrap');
   const sl = wrap.scrollLeft;
   let data;
@@ -292,7 +296,7 @@ async function renderFlujo() {
     }
     data = { columnas: cols, detalle_ingresos: detI, detalle_egresos: detE };
   } else {
-    data = await Api.flujo(modo, { desde, mes, anio });
+    data = await Api.flujo(modo, { desde, mes, anio, escenario: escenario || 'base' });
   }
   const cols = data.columnas;
   const tbl = $('#matrix');
@@ -335,7 +339,8 @@ async function renderFlujo() {
     : modo === 'trimestre'
       ? 'Trimestre ' + cols.map((c) => c.clave).join(' · ')
       : 'Mensual ' + anio + ' (12 meses)';
-  $('#flujoRange').textContent = rango + ' · montos en USD · clic en ▸ para desglosar';
+  $('#flujoRange').textContent = rango + ' · escenario ' + (escenario || 'base') +
+    ' · montos en USD · clic en ▸ para desglosar';
   $('#matrixFoot').textContent = modo === 'diario'
     ? cols.length + ' días cargados · ' + (flujoState.semDone ? 'fin de los datos' : 'sigue a la derecha para más')
     : cols.length + ' columnas · ' + (nIng + nEgr) + ' movimientos · scroll horizontal, sin paginación';
@@ -1122,6 +1127,7 @@ function init() {
   $('#btnAplicarDash').addEventListener('click', () => {
     state.anio = $('#fAnioDash').value;
     state.horizonte = +$('#fHorizonte').value;
+    state.escenario = $('#fEscenario').value || 'base';
     renderDashboard().catch((e) => { console.error(e); toast('Error al cargar el dashboard'); });
   });
   $('#btnMovimiento').addEventListener('click', () => openModal());
@@ -1363,10 +1369,22 @@ function init() {
     flujoState.desde = $('#fDesde').value;
     flujoState.mes = $('#fMes').value;
     flujoState.anio = $('#fAnio').value;
+    flujoState.escenario = $('#fEscenarioFlujo').value || 'base';
     flujoState.weeks = null;
+    flujoState.weekCache = {};
+    flujoState.dataEnd = null;
     syncFlujoInputs();
     renderFlujo().catch((e) => { console.error(e); toast('Error al cargar la matriz'); });
   });
+  const exportarFlujo = (formato) => {
+    const p = { desde: flujoState.desde, mes: flujoState.mes, anio: flujoState.anio,
+      escenario: flujoState.escenario || 'base' };
+    Api.exportFlujo(flujoState.modo, p, formato)
+      .then(() => toast('Flujo exportado a ' + formato.toUpperCase()))
+      .catch((e) => { console.error(e); toast('No se pudo exportar: ' + e.message, 'err'); });
+  };
+  $('#btnExportCsv').addEventListener('click', () => exportarFlujo('csv'));
+  $('#btnExportXlsx').addEventListener('click', () => exportarFlujo('xlsx'));
   $('#matrix').addEventListener('click', (e) => {
     const b = e.target.closest('[data-exp]');
     if (b) {

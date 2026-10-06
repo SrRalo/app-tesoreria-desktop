@@ -33,20 +33,25 @@ En tesorería existen **3 tipos de saldos por cuenta de banco** que debes explic
 
 ### 3. Cambios Específicos para Copiar y Pegar en tu Documento
 
-#### 🖊️ Reemplazar en **§3.1 Sí incluye**:
+> **NO APLICAR (descartado en a6c416b, ver §1.A):** los bloques de §3 que proponían la 5ª vista
+> Conciliación Bancaria quedaron obsoletos. La 5ª vista real es **Configuración**
+> (ya alineada en `requisitos.md` RF-07 + `AGENTS.md`). Se conservan abajo solo como
+> historial, marcados como Descartado.
+
+#### 🖊️ Reemplazar en **§3.1 Sí incluye** — DESCARTADO, NO APLICAR:
 
 ```markdown
 - [ ] Sidebar lateral con 5 vistas sin recargar: Dashboard Principal, Vista de Flujo, Movimientos, Conciliación Bancaria, Entidades
 
 ```
 
-#### 🖊️ Reemplazar **RF-07** en la tabla de §5:
+#### 🖊️ Reemplazar **RF-07** en la tabla de §5 — DESCARTADO, NO APLICAR (RF-07 real = 5 vistas con Configuración, no con Conciliación):
 
 | ID | Nombre | Descripción | Prioridad | Criterio de aceptación | Estado |
 | --- | --- | --- | --- | --- | --- |
 | RF-07 | Navegación lateral (1 pantalla) | Una sola pantalla con sidebar que conmuta entre las 5 vistas sin recargar, con icono acorde por vista y estado activo visible | Alta | Clic en cada item cambia de vista sin reload y marca el item activo; en móvil colapsa a iconos/drawer | Aprobado |
 
-#### ➕ Agregar a la tabla de **Iconos sidebar** en §5:
+#### ➕ Agregar a la tabla de **Iconos sidebar** en §5 — DESCARTADO, NO APLICAR:
 
 | Vista | Icono |
 | --- | --- |

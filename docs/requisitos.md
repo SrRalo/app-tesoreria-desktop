@@ -13,7 +13,7 @@
 | Backend | Python: lógica de negocio, lectura de Excel como fuente de datos, importación a BD relacional, API JSON |
 | BD | SQLite portable monousuario (`tesoreria.db` junto al `.exe`). Relacional generada desde el Excel. En runtime el front consulta la BD vía API, nunca el `.xlsx` directo. Solo Windows 10/11 64-bit |
 | Despliegue | Carpeta portable que se mueve con todo: `.exe + tesoreria.db + front embebido`. Build con `PyInstaller --onefile`. Sin Python en destino |
-| Layout | Una sola pantalla con barra lateral (sidebar) fija y 4 vistas sin recargar (ver §5 RF-07–RF-11) |
+| Layout | Una sola pantalla con barra lateral (sidebar) fija y 5 vistas sin recargar (ver §5 RF-07–RF-11 + RF-15 Configuración) |
 | Moneda / idioma | es-MX, USD (`Intl.NumberFormat('en-US',{style:'currency',currency:'USD'})`) |
 | Verificación | Front: abrir `frontend/index.html` o servir `frontend/` con `python3 -m http.server 8000`. Con backend: correr API Python y apuntar el front a la API. Consola sin errores, usable en desktop y móvil |
 
@@ -26,7 +26,7 @@
 
 ### 3.1 Sí incluye
 
-- [ ] Sidebar lateral con 4 vistas sin recargar: Dashboard Principal, Vista de Flujo, Movimientos, Entidades
+- [ ] Sidebar lateral con 5 vistas sin recargar: Dashboard Principal, Vista de Flujo, Movimientos, Entidades, Configuración (zona de peligro RN-13)
 - [ ] Matriz de flujo horizontal con scroll-x (días como columnas) en Vista de Flujo
 - [ ] Cálculos: ingreso, egreso, saldo inicial, flujo neto, flujo acumulado, saldo líquido (USD)
 - [ ] Desglose de ingresos / egresos por categoría
@@ -59,25 +59,25 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 
 | ID | Nombre | Descripción | Prioridad | Criterio de aceptación | Estado |
 |---|---|---|---|---|---|
-| RF-01 | Ver matriz de flujo | Ver tabla con conceptos en filas y días en columnas, scroll horizontal, primera columna y fila de fechas fijas | Alta | Muestra 90 días, columna concepto fija, fila de fechas fija | Propuesto |
-| RF-02 | Calcular flujo diario | El sistema calcula por día: `TOTAL_ING - TOTAL_EGR = FLUJO_NETO`; `SALDO_INICIAL + FLUJO_NETO = FLUJO_ACUMULADO`; `SALDO_INICIAL(d+1) = FLUJO_ACUMULADO(d)` en USD | Alta | Verificable en 3 días aleatorios sin errores de redondeo | Propuesto |
-| RF-03 | Proyección por escenarios | Cambiar entre pesimista / base / optimista y horizonte 14/30/90 días para simular el futuro | Media | Cambiar escenario recalcula todo; si acumulado < 0 muestra alerta roja | Propuesto |
-| RF-04 | Gráfico + KPIs | Ver KPIs (saldo inicial, total ing, total egr, neto, acumulado) y gráfico de acumulado + neto diario que refleje la tabla | Media | Gráfico coincide con la tabla; negativos en rojo, positivos en verde | Propuesto |
-| RF-05 | Exportar / resetear | Exportar a CSV/XLSX, cambiar fecha de inicio y saldo inicial (USD), y resetear el mock | Baja | XLSX/CSV descarga correcto; reset restaura saldo $0 USD y datos iniciales | Propuesto |
+| RF-01 | Ver matriz de flujo | Ver tabla con conceptos en filas y días en columnas, scroll horizontal, primera columna y fila de fechas fijas | Alta | Muestra 90 días, columna concepto fija, fila de fechas fija | Hecho |
+| RF-02 | Calcular flujo diario | El sistema calcula por día: `TOTAL_ING - TOTAL_EGR = FLUJO_NETO`; `SALDO_INICIAL + FLUJO_NETO = FLUJO_ACUMULADO`; `SALDO_INICIAL(d+1) = FLUJO_ACUMULADO(d)` en USD | Alta | Verificable en 3 días aleatorios sin errores de redondeo | Hecho |
+| RF-03 | Proyección por escenarios | Cambiar entre pesimista / base / optimista y horizonte 14/30/90 días para simular el futuro (`&escenario=` en `GET /api/flujo` y `GET /api/saldos`, RN-04; selectores en Dashboard y Vista de Flujo) | Media | Cambiar escenario recalcula todo; si acumulado < 0 muestra alerta roja | Hecho |
+| RF-04 | Gráfico + KPIs | Ver KPIs (saldo inicial, total ing, total egr, neto, acumulado) y gráfico de acumulado + neto diario que refleje la tabla | Media | Gráfico coincide con la tabla; negativos en rojo, positivos en verde | Hecho |
+| RF-05 | Exportar / resetear | Exportar el flujo a CSV/XLSX (`GET /api/flujo/export?modo=&formato=csv\|xlsx`, con periodo y `&escenario=`; botones CSV/XLSX en Vista de Flujo), cambiar fecha de inicio y saldo inicial (USD), y resetear (`DELETE /api/datos`, RN-13) | Baja | XLSX/CSV descarga correcto; reset restaura saldo $0 USD y datos iniciales | Hecho |
 | RF-06 | — (reservado) | Copia esta fila para un RF nuevo. Una fila = una sola acción verificable | — | ... | Propuesto |
-| RF-07 | Navegación lateral (1 pantalla) | Una sola pantalla con sidebar que conmuta entre las 4 vistas sin recargar, con icono acorde por vista y estado activo visible | Alta | Clic en cada item cambia de vista sin reload y marca el item activo; en móvil colapsa a iconos/drawer | Propuesto |
-| RF-08 | Dashboard Principal | Responder ¿cuándo tendré dinero? y ¿cuánto tendré en esa fecha? con KPIs, gráfico de acumulado y alertas de déficit | Alta | Muestra saldo actual, próximo déficit y proyección; montos en USD | Propuesto |
-| RF-09 | Vista de Flujo | Matriz con 5 filas fijas (Saldo inicial, Total Ingresos desglosable en subfilas, Total Egresos desglosable en subfilas, Flujo neto diario, Flujo acumulado diario) y filtro de periodo: diario (7 días con nombre + fecha), trimestre (3 meses: se elige 1 mes y auto los 2 siguientes), mensual (12 meses). Sin paginación, solo scroll-x | Alta | Totales coinciden con Movimientos; el desglose abre subfilas por movimiento; trimestre con 1 mes elegido muestra ese + 2 siguientes | Propuesto |
-| RF-10 | Movimientos (CRUD) | Botón único "+ Movimiento" (tipo se elige dentro del formulario de 9 campos). Filtros por solo ingresos / solo egresos + status + búsqueda. Editar solo permite mover fecha y observación (pasa a aplazado auto). Acción "Realizado" en fila para pendientes/aplazados con fecha de hoy | Alta | Crear con aplazado se rechaza; editar bloquea 7 campos; Realizado estampa hoy y recalcula | Propuesto |
-| RF-11 | Entidades (lectura) | Ver clientes, proveedores y bancos/cuentas (nombre, tipo, saldo) solo como lectura, para asociar a movimientos | Media | Lista las 3 categorías; sin botones crear/editar/eliminar; bancos muestran saldo USD | Propuesto |
-| RF-12 | Importar Excel (backend) | Backend Python lee el Excel fuente, valida y lo importa a la BD relacional con reporte de errores y sin duplicar | Alta | Reimportar el mismo archivo no duplica; filas inválidas se reportan y no rompen la carga | Propuesto |
-| RF-13 | API de consultas (backend) | El front consulta la BD vía API JSON paginada; nunca lee el `.xlsx` directo por request | Alta | Con el Excel cerrado/borrado la app sigue mostrando y filtrando datos | Propuesto |
-| RF-14 | Primer arranque + plantilla | Con DB vacía la app ofrece (a) seleccionar Excel o (b) iniciar vacío con saldo inicial USD; además ofrece descargar `plantilla_flujo.xlsx` con formato válido | Alta | App nueva muestra el selector; (b) entra vacío; plantilla importada sin errores | Propuesto |
-| RF-15 | Configuración + borrado total | Vista Configuración con zona de peligro: botón "Borrar todo" protegido por clave de administrador en la UI; vacía movimientos, saldos, entidades y cuentas y vuelve al primer arranque (la bitácora se preserva) | Alta | Sin clave no borra (403); con clave vuelve a `necesita_import=true` | Propuesto |
-| RF-16 | Bitácora de acciones | Toda acción CRUD + sistema (crear, editar, realizado, eliminar, importar, init-vacío, borrado, exportar logs) deja fila en `bitacora` con fecha, acción, tabla, registro_id, detalle, dato_anterior/nuevo JSON y origen | Alta | Crear/editar/eliminar un movimiento genera evento consultable en `GET /api/bitacora` | Propuesto |
-| RF-17 | Exportación de logs | En Configuración, apartado colapsado "Exportación de logs" con filtros (desde/hasta, acción, texto) y botón Descargar .txt que respeta los filtros | Media | El .txt trae una línea por evento con antes/después; con filtros trae solo el subconjunto | Propuesto |
-| RF-18 | Recursos (origen del Excel) | En Configuración, apartado colapsado "Recursos" que muestra el último libro cargado (nombre + fecha + filas ok/error desde `import_log`) y botón de plantilla | Media | Tras importar se ve el nombre real del archivo y su fecha | Propuesto |
-| RF-19 | Importar estado de cuenta | Backend importa el estado de cuenta de cada banco (Pichincha HTML, Internacional BIFF, Produbanco xlsx) a `extracto_lineas` + `cortes_bancarios`, fija la apertura 31-jul-2026 por cuenta y genera los movimientos realizados (comisiones con concepto `comision`) | Alta | Reimportar no duplica (hash); cadena de saldos validada; cierre agosto 2026: Pichincha 236,014.39, Internacional 107,335.46, Produbanco 32,593.36 | Hecho |
+| RF-07 | Navegación lateral (1 pantalla) | Una sola pantalla con sidebar que conmuta entre las 5 vistas sin recargar (Dashboard, Flujo, Movimientos, Entidades, Configuración), con icono acorde por vista y estado activo visible | Alta | Clic en cada item cambia de vista sin reload y marca el item activo; en móvil colapsa a iconos/drawer | Hecho |
+| RF-08 | Dashboard Principal | Responder ¿cuándo tendré dinero? y ¿cuánto tendré en esa fecha? con KPIs, gráfico de acumulado y alertas de déficit | Alta | Muestra saldo actual, próximo déficit y proyección; montos en USD | Hecho |
+| RF-09 | Vista de Flujo | Matriz con 5 filas fijas (Saldo inicial, Total Ingresos desglosable en subfilas, Total Egresos desglosable en subfilas, Flujo neto diario, Flujo acumulado diario) y filtro de periodo: diario (7 días con nombre + fecha), trimestre (3 meses: se elige 1 mes y auto los 2 siguientes), mensual (12 meses). Sin paginación, solo scroll-x | Alta | Totales coinciden con Movimientos; el desglose abre subfilas por movimiento; trimestre con 1 mes elegido muestra ese + 2 siguientes | Hecho |
+| RF-10 | Movimientos (CRUD) | Botón único "+ Movimiento" (tipo se elige dentro del formulario de 9 campos). Filtros por solo ingresos / solo egresos + status + búsqueda. Editar solo permite mover fecha y observación (pasa a aplazado auto). Acción "Realizado" en fila para pendientes/aplazados con fecha de hoy | Alta | Crear con aplazado se rechaza; editar bloquea 7 campos; Realizado estampa hoy y recalcula | Hecho |
+| RF-11 | Entidades (lectura) | Ver clientes, proveedores y bancos/cuentas (nombre, tipo, saldo) solo como lectura, para asociar a movimientos | Media | Lista las 3 categorías; sin botones crear/editar/eliminar; bancos muestran saldo USD | Hecho |
+| RF-12 | Importar Excel (backend) | Backend Python lee el Excel fuente, valida y lo importa a la BD relacional con reporte de errores y sin duplicar | Alta | Reimportar el mismo archivo no duplica; filas inválidas se reportan y no rompen la carga | Hecho |
+| RF-13 | API de consultas (backend) | El front consulta la BD vía API JSON paginada; nunca lee el `.xlsx` directo por request | Alta | Con el Excel cerrado/borrado la app sigue mostrando y filtrando datos | Hecho |
+| RF-14 | Primer arranque + plantilla | Con DB vacía la app ofrece (a) seleccionar Excel o (b) iniciar vacío con saldo inicial USD; además ofrece descargar `plantilla_flujo.xlsx` con formato válido | Alta | App nueva muestra el selector; (b) entra vacío; plantilla importada sin errores | Hecho |
+| RF-15 | Configuración + borrado total | Vista Configuración con zona de peligro: botón "Borrar todo" protegido por clave de administrador en la UI; vacía movimientos, saldos, entidades y cuentas y vuelve al primer arranque (la bitácora se preserva) | Alta | Sin clave no borra (403); con clave vuelve a `necesita_import=true` | Hecho |
+| RF-16 | Bitácora de acciones | Toda acción CRUD + sistema (crear, editar, realizado, eliminar, importar, init-vacío, borrado, exportar logs) deja fila en `bitacora` con fecha, acción, tabla, registro_id, detalle, dato_anterior/nuevo JSON y origen | Alta | Crear/editar/eliminar un movimiento genera evento consultable en `GET /api/bitacora` | Hecho |
+| RF-17 | Exportación de logs | En Configuración, apartado colapsado "Exportación de logs" con filtros (desde/hasta, acción, texto) y botón Descargar .txt que respeta los filtros | Media | El .txt trae una línea por evento con antes/después; con filtros trae solo el subconjunto | Hecho |
+| RF-18 | Recursos (origen del Excel) | En Configuración, apartado colapsado "Recursos" que muestra el último libro cargado (nombre + fecha + filas ok/error desde `import_log`) y botón de plantilla | Media | Tras importar se ve el nombre real del archivo y su fecha | Hecho |
+| RF-19 | Importar estado de cuenta | Backend importa el estado de cuenta de cada banco (Pichincha HTML, Internacional BIFF, Produbanco xlsx) a `extracto_lineas` + `cortes_bancarios`, fija la apertura 31-jul-2026 por cuenta. Los extractos NO generan movimientos ni entran al Flujo; solo se consultan en Entidades > Bancos (`GET /api/bancos`, `GET /api/bancos/{id}/meses`, `GET /api/bancos/{id}/extracto`) | Alta | Reimportar no duplica (hash); cadena de saldos validada; cierre agosto 2026: Pichincha 236,014.39, Internacional 107,335.46, Produbanco 32,593.36 | Hecho |
 | RF-20 | Conciliar y cuadrar (dato real) | Conciliación automática por fecha (misma fecha + valor + cuenta; comisiones no se concilian, se generan) y cuadre mensual `GET /api/cuadre?mes=2026-08` (calculado vs corte por cuenta + total); cuentas sin extracto (Guayaquil/Caja) en cero con aviso en la UI | Alta | `diferencia` 0 en las 3 cuentas con extracto; total app 375,943.21 = total bancos; aviso visible en Entidades para cuentas sin extracto | Hecho |
 | RF-21 | Conciliación manual (doble panel) | Vista Conciliación compara extracto sin conciliar vs movimientos pendientes; vínculo manual exacto (`POST /api/conciliacion/vincular`) o con comisión por diferencia (`POST /api/conciliacion/comision`); auto re-ejecutable (`POST /api/conciliacion/auto`). **Eliminada en a6c416b: los extractos solo se consultan en Entidades > Bancos, no generan movimientos ni cambian status; los endpoints fueron retirados (responden 404) y `backend/servicios/conciliacion.py` quedó DEPRECATED sin uso** | Alta | Vincular actualiza a `realizado`/`conciliado` y recalcula; diferencia fuera de tolerancia se rechaza con 400 | Eliminado |
 | RF-22 | Desglose de saldos (RN-14) | `GET /api/cuentas/saldos` devuelve por cuenta {real, libros, proyectado+30d}; Entidades muestra columna Real/Libros/Proy | Media | Real = último corte; libros = real + realizados no conciliados; proyectado = libros + pendientes ≤ fecha | Hecho |
@@ -94,6 +94,7 @@ Las HU las provee el dueño; el asistente las traduce a filas RF en esta tabla.
 | Vista de Flujo | `ChartNoAxesCombined` |
 | Movimientos | `ArrowDownLeft` (ingreso) / `ArrowUpRight` (egreso) |
 | Entidades | `Building2`/`Users` (clientes/proveedores) + `Landmark` (bancos) |
+| Configuración | `Settings` |
 
 ### Plantilla vacía para copiar
 
@@ -189,7 +190,7 @@ Reglas: cada CRUD en `movimientos` dispara `recalcular_saldos_desde(fecha)`. La 
 
 ## 9. Criterios de aceptación global
 
-- [ ] App de una sola pantalla: la sidebar conmuta las 4 vistas sin recargar y marca la activa.
+- [ ] App de una sola pantalla: la sidebar conmuta las 5 vistas sin recargar y marca la activa.
 - [ ] Todos los montos en USD.
 - [ ] `FLUJO_ACUMULADO(d) = SALDO_INICIAL(d) + TOTAL_ING(d) − TOTAL_EGR(d)` en 3 días aleatorios.
 - [ ] `SALDO_INICIAL(d+1) === FLUJO_ACUMULADO(d)`.

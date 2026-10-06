@@ -17,8 +17,10 @@ POST /api/importar/lote       -> revalida + ejecuta los ETL con todo-o-nada
    GET  /api/flujo?modo=diario&desde=YYYY-MM-DD    -> 7 columnas día (nombre + fecha)
    GET  /api/flujo?modo=trimestre&mes=YYYY-MM     -> 3 columnas mes (el elegido + 2 siguientes)
    GET  /api/flujo?modo=mensual&anio=YYYY         -> 12 columnas mes
-  (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
-   GET  /api/saldos?anio=YYYY          -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard; sin anio = todo)
+ (cada columna: saldo_inicial, ing, egr, neto, acumulado + detalle de movimientos para subfilas)
+ (los 3 aceptan &escenario=base|optimista|pesimista, RN-04; default base)
+   GET  /api/flujo/export?modo=&formato=csv|xlsx (+ periodo y &escenario=) -> descarga RF-05
+   GET  /api/saldos?anio=YYYY[&escenario=base|optimista|pesimista] -> [{fecha, ing, egr, neto, acumulado_usd}] (Dashboard; sin anio = todo)
    GET  /api/anios                -> ["2025","2026",...] años con datos (selectores de año)
    GET  /api/notificaciones?hoy=  -> {hoy, badge, resumen, total_vencido_usd, grupos}
      (vencido + buckets d7/d15/d30/d60/d90/mas90; vencido solo alerta, no suma)
@@ -157,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             modo = q.get("modo", ["diario"])[0]
             if modo not in ("diario", "trimestre", "mensual", "semana", "anual"):
                 return self._json({"error": "modo debe ser diario|trimestre|mensual"}, 400)
+            if q.get("escenario", ["base"])[0] not in ("base", "optimista", "pesimista"):
+                return self._json({"error": "escenario debe ser base|optimista|pesimista"}, 400)
             con = conectar(self.db)
             try:
                 res = flujo_por_modo(con, modo, q)
@@ -165,6 +169,71 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
             return self._json(res)
+        if u.path == "/api/flujo/export":
+            # RF-05: descarga del flujo (CSV siempre; XLSX si openpyxl disponible).
+            import csv
+            import io
+            q = parse_qs(u.query)
+            modo = q.get("modo", ["diario"])[0]
+            formato = q.get("formato", ["csv"])[0].lower()
+            if modo not in ("diario", "trimestre", "mensual", "semana", "anual"):
+                return self._json({"error": "modo debe ser diario|trimestre|mensual"}, 400)
+            if q.get("escenario", ["base"])[0] not in ("base", "optimista", "pesimista"):
+                return self._json({"error": "escenario debe ser base|optimista|pesimista"}, 400)
+            if formato not in ("csv", "xlsx"):
+                return self._json({"error": "formato debe ser csv|xlsx"}, 400)
+            con = conectar(self.db)
+            try:
+                res = flujo_por_modo(con, modo, q)
+            except (ValueError, KeyError) as e:
+                return self._json({"error": f"parámetros inválidos: {e}"}, 400)
+            finally:
+                con.close()
+            cols = res["columnas"]
+            esc = res.get("escenario", "base")
+            if formato == "csv":
+                buf = io.StringIO()
+                w = csv.writer(buf)
+                w.writerow(["clave", "titulo", "subtitulo", "saldo_inicial",
+                            "ingresos", "egresos", "neto", "acumulado"])
+                for c in cols:
+                    w.writerow([c["clave"], c["titulo"], c.get("subtitulo", ""),
+                                c["saldo_inicial"], c["ing"], c["egr"],
+                                c["neto"], c["acumulado"]])
+                body = "\ufeff" + buf.getvalue()
+                raw = body.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f"attachment; filename=flujo_{res['modo']}_{esc}.csv")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                return self.wfile.write(raw)
+            try:
+                from openpyxl import Workbook
+            except ImportError:
+                return self._json({"error": "xlsx no disponible (openpyxl no instalado)"}, 501)
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Flujo"
+            ws.append(["clave", "titulo", "subtitulo", "saldo_inicial",
+                       "ingresos", "egresos", "neto", "acumulado"])
+            for c in cols:
+                ws.append([c["clave"], c["titulo"], c.get("subtitulo", ""),
+                           c["saldo_inicial"], c["ing"], c["egr"],
+                           c["neto"], c["acumulado"]])
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                wb.save(tmp.name)
+                raw = Path(tmp.name).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition",
+                             f"attachment; filename=flujo_{res['modo']}_{esc}.xlsx")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            return self.wfile.write(raw)
         if u.path == "/api/movimientos":
             q = parse_qs(u.query)
             con = conectar(self.db)
@@ -237,9 +306,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "no encontrado"}, 404)
         if u.path == "/api/saldos":
             q = parse_qs(u.query)
+            esc = q.get("escenario", ["base"])[0]
+            if esc not in ("base", "optimista", "pesimista"):
+                return self._json({"error": "escenario debe ser base|optimista|pesimista"}, 400)
             con = conectar(self.db)
             try:
-                res = saldos(con, q.get("anio", [""])[0])
+                res = saldos(con, q.get("anio", [""])[0], esc)
             finally:
                 con.close()
             return self._json(res)

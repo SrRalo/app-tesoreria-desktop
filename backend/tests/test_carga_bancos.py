@@ -179,3 +179,64 @@ def test_zip_sin_encabezados_no_es_produbanco():
         z.writestr("x.txt", "hola")
     tipo, _ = detectar_tipo(buf.getvalue(), "raro.xlsx")
     assert tipo != "produbanco"
+
+
+def _servidor(tmp_path):
+    db = tmp_path / "lote.db"
+    conectar(db).close()
+    anterior = Handler.db
+    Handler.db = db
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    hilo = threading.Thread(target=srv.serve_forever, daemon=True)
+    hilo.start()
+    return srv, anterior, f"http://127.0.0.1:{srv.server_port}"
+
+
+def _multipart(campos: dict[str, tuple[bytes, str]]):
+    b = "BND"
+    cuerpo = b""
+    for campo, (raw, nombre) in campos.items():
+        cuerpo += (f'--{b}\r\nContent-Disposition: form-data; name="{campo}";'
+                   f' filename="{nombre}"\r\n\r\n').encode() + raw + b"\r\n"
+    cuerpo += f"--{b}--\r\n".encode()
+    return cuerpo, f"multipart/form-data; boundary={b}"
+
+
+def test_lote_valido_importa_todo(tmp_path):
+    """RF-ETL-13 camino feliz: lote válido importa CxC + extracto juntos."""
+    srv, anterior, base = _servidor(tmp_path)
+    try:
+        cuerpo, ctype = _multipart({"pichincha": (PICHINCHA_HTML, "estado.html"),
+                                    "cxc": (_xlsx_cartera(), "cartera.xlsx")})
+        status, res, _ = llamar(base, "POST", "/api/importar/lote", cuerpo, ctype)
+        assert status == 200 and res["ok"] is True
+        _, movs, _ = llamar(base, "GET", "/api/movimientos")
+        assert movs["total"] == 1
+        _, bancos, _ = llamar(base, "GET", "/api/bancos")
+        assert bancos["total"] == 1
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        Handler.db = anterior
+
+
+def test_lote_invalido_no_guarda_nada(tmp_path):
+    """RF-ETL-13 todo-o-nada: un campo inválido -> 422 y BD intacta."""
+    srv, anterior, base = _servidor(tmp_path)
+    try:
+        # Produbanco en campo Pichincha + CxC válida: la revalidación falla
+        # antes de ejecutar ningún ETL.
+        cuerpo, ctype = _multipart({"pichincha": (_xlsx_minimo(), "x.xlsx"),
+                                    "cxc": (_xlsx_cartera(), "cartera.xlsx")})
+        status, res, _ = llamar(base, "POST", "/api/importar/lote", cuerpo, ctype)
+        assert status == 422 and "error" in res
+        _, movs, _ = llamar(base, "GET", "/api/movimientos")
+        assert movs["total"] == 0
+        _, bancos, _ = llamar(base, "GET", "/api/bancos")
+        assert bancos["total"] == 0
+        _, est, _ = llamar(base, "GET", "/api/estado")
+        assert est["necesita_import"] is True
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        Handler.db = anterior
